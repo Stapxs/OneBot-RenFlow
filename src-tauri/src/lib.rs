@@ -72,7 +72,7 @@ pub fn run() {
 
             // 创建主窗体 ============
             info!(
-                "欢迎使用 Stapxs QQ Lite, 当前版本: {}",
+                "欢迎使用 Ren Flow, 当前版本: {}",
                 env!("CARGO_PKG_VERSION")
             );
             info!("启动平台架构：{}", std::env::consts::OS);
@@ -123,6 +123,16 @@ pub fn run() {
             commands::sys::sys_get_html,
             commands::sys::sys_get_api,
             commands::sys::sys_download,
+            commands::win::win_create_window,
+            commands::win::win_close_window,
+            commands::win::win_show_window,
+            commands::win::win_hide_window,
+            commands::win::win_start_dragging,
+            commands::win::win_minimize,
+            commands::win::win_maximize,
+            commands::win::win_unmaximize,
+            commands::win::win_toggle_maximize,
+            commands::win::win_is_maximized,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -131,7 +141,7 @@ pub fn run() {
 /// 创建主窗体配置
 fn create_window(app: &mut tauri::App) -> tauri::Result<tauri::WebviewWindow> {
     let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
-        .title("Stapxs QQ Lite")
+        .title("Ren Flow")
         .inner_size(850.0, 530.0)
         .transparent(true);
     #[cfg(target_os = "macos")]

@@ -24,4 +24,3 @@ dist-ssr
 *.sw?
 
 yarn.lock
-src-tauri/Cargo.lock

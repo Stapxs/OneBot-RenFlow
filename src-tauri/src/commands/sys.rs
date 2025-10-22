@@ -385,3 +385,4 @@ pub fn sys_open_in_browser(app_handle: tauri::AppHandle, data: String) {
 pub fn sys_run_proxy() -> u16 {
     return PROXY_PORT.get().unwrap().clone();
 }
+

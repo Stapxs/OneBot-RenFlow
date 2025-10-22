@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import Option from '@app/functions/option'
 
-import { onMounted, ref } from 'vue';
+import { onMounted } from 'vue';
 import { backend } from '@app/functions/backend'
 import { Logger } from '@app/functions/base'
 
 const dev = import.meta.env.DEV
 
 function handleAppbarMouseDown(e: MouseEvent) {
-    // handle appbar mouse down (placeholder)
+    // 获取 URL 最后一级路径作为窗口标识
+    const winId = location.pathname.split('/').pop()
+    backend.call('win:StartDragging', winId)
 }
 
 function barMainClick() {
@@ -29,22 +31,31 @@ onMounted(async () => {
 </script>
 
 <template>
-    <div v-if="['linux', 'win32'].includes(backend.platform ?? '')"
-        :class="'top-bar' + ((backend.platform == 'win32' && dev) ? ' win' : '')"
-        name="appbar"
-        data-tauri-drag-region="true"
-        @mousedown="handleAppbarMouseDown">
-        <div class="bar-button" @click="barMainClick()" />
-        <div class="space" />
-        <div class="controller">
-            <div class="min" @click="controllWin('minimize')">
-                <font-awesome-icon :icon="['fas', 'minus']" />
-            </div>
-            <div class="close" @click="controllWin('close')">
-                <font-awesome-icon :icon="['fas', 'xmark']" />
+    <div class="app-container">
+        <!-- Windows/Linux 自定义标题栏 -->
+        <div v-if="['linux', 'win32'].includes(backend.platform ?? '')"
+            :class="'top-bar' + ((backend.platform == 'win32' && dev) ? ' win' : '')"
+            name="appbar"
+            data-tauri-drag-region="true"
+            @mousedown="handleAppbarMouseDown">
+            <div class="bar-button" @click="barMainClick()" />
+            <div class="space" />
+            <div class="controller">
+                <div class="min" @click="controllWin('minimize')">
+                    <font-awesome-icon :icon="['fas', 'minus']" />
+                </div>
+                <div class="close" @click="controllWin('close')">
+                    <font-awesome-icon :icon="['fas', 'xmark']" />
+                </div>
             </div>
         </div>
+
+        <!-- macOS 拖拽区域 -->
+        <div v-if="backend.platform == 'darwin'"
+            class="controller mac-controller"
+            data-tauri-drag-region="true" />
+
+        <!-- 路由视图 -->
+        <router-view />
     </div>
-    <div v-if="backend.platform == 'darwin'" class="controller mac-controller"
-        data-tauri-drag-region="true" />
 </template>

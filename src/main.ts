@@ -1,4 +1,6 @@
 import App from './App.vue'
+import router from './router'
+import { windowManager } from './functions/window'
 
 import { createApp } from 'vue'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
@@ -11,6 +13,11 @@ const app = createApp(App)
 
 library.add(fas)
 app.component('FontAwesomeIcon', FontAwesomeIcon)
+
+app.use(router)
+
+// 将 router 实例注入到 windowManager（用于 Web 环境）
+windowManager.setRouter(router)
 
 app.mount('#app')
 
