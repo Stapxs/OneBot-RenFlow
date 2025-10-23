@@ -2,6 +2,9 @@ import { reactive } from 'vue'
 import { type RunTimeDataElem } from './elements/information'
 
 const baseRuntime = {
+    tags: {
+        firstLoad: true
+    },
     sysConfig: {}
 }
 

@@ -4,8 +4,10 @@
     "target": "ES2023",
     "lib": ["ES2023"],
     "module": "ESNext",
+    "moduleResolution": "bundler",
     "types": ["node"],
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true
   },
   "include": ["vite.config.ts"]
 }

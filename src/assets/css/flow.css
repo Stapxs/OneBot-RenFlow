@@ -1,0 +1,42 @@
+.vue-flow__handle {
+    background: var(--color-main);
+    border-radius: 7px;
+    border: 2px solid var(--color-bg);
+    height: 20px;
+    width: 7px;
+}
+
+.vue-flow__edge-path {
+    stroke: var(--color-main);
+    stroke-width: 3px;
+}
+.vue-flow__edge.selected .vue-flow__edge-path {
+    stroke: var(--color-main);
+    opacity: 0.7;
+}
+.vue-flow__edge-labels > div {
+    border: 2px solid var(--color-main);
+    background: var(--color-card-1);
+    border-radius: 0.8rem;
+    padding: 3px 6px;
+    font-size: 0.6rem;
+}
+
+.vue-flow__controls {
+    box-shadow: 0 0 5px var(--color-shader);
+    border-radius: 7px;
+    overflow: hidden;
+}
+.vue-flow__controls-button {
+    background: rgba(var(--color-card-rgb), 0.5);
+    box-shadow: 0 0 5px var(--color-shader);
+    backdrop-filter: blur(5px);
+    border-bottom: unset;
+    padding: 10px;
+}
+.vue-flow__controls-button:hover {
+    background: rgba(var(--color-card-rgb), 0.8);
+}
+.vue-flow__controls-button > svg {
+    fill: var(--color-font);
+}

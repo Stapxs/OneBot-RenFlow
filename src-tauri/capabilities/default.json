@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
-    "core:image:allow-from-bytes"
+    "core:image:allow-from-bytes",
+    "notification:allow-is-permission-granted"
   ]
 }

@@ -6,6 +6,10 @@ export enum BotMsgType {
 }
 
 export interface RunTimeDataElem {
+    tags: {
+        firstLoad: boolean,
+        darkMode?: boolean
+    },
     sysConfig: Record<keyof typeof optDefault, any|null>
 }
 

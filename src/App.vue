@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import Option from '@app/functions/option'
 
-import { onMounted } from 'vue';
+import { onMounted } from 'vue'
 import { backend } from '@app/functions/backend'
 import { Logger } from '@app/functions/base'
+import { setAutoDark } from '@app/functions/utils/app'
 
 const dev = import.meta.env.DEV
 
@@ -26,6 +27,7 @@ onMounted(async () => {
     window.moYu = () => { return '\x75\x6e\x64\x65\x66\x69\x6e\x65\x64' }
 
     await backend.init()
+    setAutoDark()
     // runtimeData.sysConfig = await Option.load()
 });
 </script>
