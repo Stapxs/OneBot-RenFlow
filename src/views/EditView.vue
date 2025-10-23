@@ -25,6 +25,10 @@
                 <IfElseNode v-bind="ifelseNodeProps" />
             </template>
 
+            <template #node-trigger="triggerNodeProps">
+                <TriggerNode v-bind="triggerNodeProps" />
+            </template>
+
             <template #edge-base="baseEdgeProps">
                 <BaseEdge v-bind="baseEdgeProps" />
             </template>
@@ -68,7 +72,8 @@ import { NodeManager } from '@app/functions/nodes'
 import type { NodeMetadata } from '@app/functions/nodes/types'
 import type { Node, Edge } from '@vue-flow/core'
 
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Controls } from '@vue-flow/controls'
 import { Background } from '@vue-flow/background'
@@ -78,14 +83,53 @@ import BcTab from 'vue3-bcui/packages/bc-tab'
 import BaseNode from '@app/components/BaseNode.vue'
 import BaseEdge from '@app/components/BaseEdge.vue'
 
+import TriggerNode from '@app/components/nodes/TriggerNode.vue'
 import NoteNode from '@app/components/nodes/NoteNode.vue'
 import IfElseNode from '@app/components/nodes/IfElseNode.vue'
 
+const route = useRoute()
 const { onNodeDrag, getIntersectingNodes, updateNode, addEdges, addNodes, project } = useVueFlow()
 const nodeManager = new NodeManager()
 
 // 是否为开发环境
 const isDev = import.meta.env.DEV
+
+// 工作流信息
+const workflowInfo = ref({
+    triggerType: '',
+    triggerTypeLabel: '',
+    triggerName: '',
+    triggerLabel: '',
+    name: '',
+    description: ''
+})
+
+// 从 URL 参数获取工作流信息
+onMounted(() => {
+    const query = route.query
+    if (query.triggerType && query.triggerName && query.name) {
+        workflowInfo.value = {
+            triggerType: query.triggerType as string,
+            triggerTypeLabel: query.triggerTypeLabel as string || query.triggerType as string,
+            triggerName: query.triggerName as string,
+            triggerLabel: query.triggerLabel as string || query.triggerName as string,
+            name: query.name as string,
+            description: (query.description as string) || ''
+        }
+        console.log('工作流信息:', workflowInfo.value)
+
+        // 创建触发器节点
+        nodes.value = [{
+            id: 'node-trigger',
+            type: 'trigger',
+            position: { x: 0, y: 0 },
+            data: {
+                triggerType: workflowInfo.value.triggerTypeLabel,
+                triggerName: workflowInfo.value.triggerLabel
+            }
+        }]
+    }
+})
 
 // 搜索关键词
 const searchKeyword = ref('')
@@ -122,14 +166,7 @@ const filteredNodes = computed(() => {
 })
 
 // 节点和边数据
-const nodes = ref<Node[]>([
-    {
-        id: 'node-start',
-        type: 'base',
-        position: { x: 0, y: 0 },
-        data: { label: '事件', type: 'start' },
-    }
-])
+const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 
 // 节点 ID 计数器

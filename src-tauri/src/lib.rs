@@ -148,6 +148,7 @@ fn create_window(app: &mut tauri::App) -> tauri::Result<tauri::WebviewWindow> {
     let win_builder = win_builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(20.0, 30.0))
         .background_color(tauri::window::Color(0, 0, 0, 1))
         .accept_first_mouse(true)
         .effects(
