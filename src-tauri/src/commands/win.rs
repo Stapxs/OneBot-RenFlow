@@ -36,6 +36,7 @@ pub fn win_create_window(app_handle: AppHandle, options: CreateWindowOptions) ->
         options.width.unwrap_or(850.0),
         options.height.unwrap_or(530.0)
     )
+    .disable_drag_drop_handler()
     .transparent(true);
 
     // 平台特定配置

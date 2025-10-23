@@ -1,7 +1,7 @@
 /**
  * 节点参数类型
  */
-export type NodeParamType = 'input' | 'switch' | 'textarea' | 'number' | 'select'
+export type NodeParamType = 'input' | 'switch' | 'textarea' | 'number' | 'select' | 'settings'
 
 /**
  * 节点参数配置
@@ -26,7 +26,7 @@ export interface NodeParam {
 /**
  * 节点分类（用于 UI 展示分组）
  */
-export type NodeCategory = 'input' | 'output' | 'transform' | 'control' | 'logic' | 'data' | 'network' | 'custom'
+export type NodeCategory = 'input' | 'output' | 'transform' | 'control' | 'logic' | 'data' | 'network' | 'bot' | 'flow' | 'custom'
 
 /**
  * 节点分类信息

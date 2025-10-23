@@ -91,10 +91,7 @@ body {
 
 .top-bar>div.controller>div.close:hover>svg {
     color: #fff;
-<<<<<<< Updated upstream
-=======
     background: #a5a5a5;
->>>>>>> Stashed changes
 }
 
 .mac-controller {
@@ -104,10 +101,7 @@ body {
     width: 100%;
     height: 30px;
 }
-<<<<<<< Updated upstream
-=======
 
 .tab-bar > li:last-child > div {
     background: var(--color-main) !important;
 }
->>>>>>> Stashed changes

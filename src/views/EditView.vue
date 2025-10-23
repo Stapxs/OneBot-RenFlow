@@ -1,8 +1,9 @@
 <template>
-    <div class="edit-view">
+    <div class="edit-view" @drop="onDrop">
         <VueFlow v-model:nodes="nodes" v-model:edges="edges"
             @connect="onConnect"
-            @edgeDoubleClick="onEdgeDoubleClick">
+            @edgeDoubleClick="onEdgeDoubleClick"
+            @dragover="onDragOver">
             <Controls />
             <Background
                 :gap="35"
@@ -16,6 +17,14 @@
                 <BaseNode v-bind="baseNodeProps" />
             </template>
 
+            <template #node-note="noteNodeProps">
+                <NoteNode v-bind="noteNodeProps" />
+            </template>
+
+            <template #node-ifelse="ifelseNodeProps">
+                <IfElseNode v-bind="ifelseNodeProps" />
+            </template>
+
             <template #edge-base="baseEdgeProps">
                 <BaseEdge v-bind="baseEdgeProps" />
             </template>
@@ -26,15 +35,20 @@
                     <div class="node-list-search">
                         <label>
                             <font-awesome-icon :icon="['fas', 'fa-magnifying-glass']" />
-                            <input type="text" placeholder="搜索分类或名称……" />
+                            <input
+                                type="text"
+                                placeholder="搜索分类或名称……"
+                                v-model="searchKeyword"
+                            />
                         </label>
                     </div>
                     <div class="node-list-body">
-                        <div v-for="item in nodeManager.getNodeList()" :key="item.id"
-                            :draggable="true">
+                        <div v-for="item in filteredNodes" :key="item.id"
+                            :draggable="true"
+                            @dragstart="onDragStart($event, item)">
                             <font-awesome-icon :icon="['fas', item.icon || 'fa-cube']" />
                             <div>
-                                <span>{{ item.name }}</span>
+                                <span><span>{{ categoryNames[item.category] || item.category }}</span>{{ item.name }}</span>
                                 <a>{{ item.description }}</a>
                             </div>
                         </div>
@@ -51,9 +65,11 @@
 <script setup lang="ts">
 import { NodeManager } from '@app/functions/nodes'
 
-import { ref } from 'vue'
-import { VueFlow, useVueFlow } from '@vue-flow/core'
+import type { NodeMetadata } from '@app/functions/nodes/types'
 import type { Node, Edge } from '@vue-flow/core'
+
+import { ref, computed } from 'vue'
+import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Controls } from '@vue-flow/controls'
 import { Background } from '@vue-flow/background'
 
@@ -62,8 +78,126 @@ import BcTab from 'vue3-bcui/packages/bc-tab'
 import BaseNode from '@app/components/BaseNode.vue'
 import BaseEdge from '@app/components/BaseEdge.vue'
 
-const { onNodeDrag, getIntersectingNodes, updateNode, addEdges } = useVueFlow()
+import NoteNode from '@app/components/nodes/NoteNode.vue'
+import IfElseNode from '@app/components/nodes/IfElseNode.vue'
+
+const { onNodeDrag, getIntersectingNodes, updateNode, addEdges, addNodes, project } = useVueFlow()
 const nodeManager = new NodeManager()
+
+// 是否为开发环境
+const isDev = import.meta.env.DEV
+
+// 搜索关键词
+const searchKeyword = ref('')
+
+// 分类中文映射
+const categoryNames: Record<string, string> = {
+    input: '输入',
+    output: '输出',
+    transform: '转换',
+    control: '控制',
+    logic: '逻辑',
+    data: '数据',
+    network: '网络',
+    bot: '机器人',
+    flow: '流程',
+    custom: '自定义'
+}
+
+// 过滤后的节点列表
+const filteredNodes = computed(() => {
+    const keyword = searchKeyword.value.toLowerCase().trim()
+    if (!keyword) {
+        return nodeManager.getNodeList()
+    }
+
+    return nodeManager.getNodeList().filter(node => {
+        // 搜索节点名称、描述和分类
+        return (
+            node.name.toLowerCase().includes(keyword) ||
+            node.description.toLowerCase().includes(keyword) ||
+            node.category.toLowerCase().includes(keyword)
+        )
+    })
+})
+
+// 节点和边数据
+const nodes = ref<Node[]>([
+    {
+        id: 'node-start',
+        type: 'base',
+        position: { x: 0, y: 0 },
+        data: { label: '事件', type: 'start' },
+    }
+])
+const edges = ref<Edge[]>([])
+
+// 节点 ID 计数器
+let nodeIdCounter = 0
+
+// 拖拽状态
+const draggedNodeType = ref<NodeMetadata | null>(null)
+
+/**
+ * 处理拖拽开始
+ */
+function onDragStart(event: DragEvent, nodeType: NodeMetadata) {
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('application/vueflow', nodeType.id)
+        draggedNodeType.value = nodeType
+    }
+}
+
+/**
+ * 处理拖拽经过画布
+ */
+function onDragOver(event: DragEvent) {
+    event.preventDefault()
+    if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'move'
+    }
+}
+
+/**
+ * 处理放置节点
+ */
+function onDrop(event: DragEvent) {
+    if (!draggedNodeType.value) return
+
+    // 获取鼠标在画布上的位置
+    const position = project({
+        x: event.clientX,
+        y: event.clientY
+    })
+
+    // 判断节点类型,特殊节点使用自定义类型
+    let nodeType = 'base'
+    if (draggedNodeType.value.id === 'note') {
+        nodeType = 'note'
+    } else if (draggedNodeType.value.id === 'if-else') {
+        nodeType = 'ifelse'
+    }
+
+    // 创建新节点
+    const newNode: Node = {
+        id: `node-${nodeIdCounter++}`,
+        type: nodeType,
+        position,
+        data: {
+            label: draggedNodeType.value.name,
+            nodeType: draggedNodeType.value.id,
+            metadata: draggedNodeType.value,
+            params: {}
+        }
+    }
+
+    // 添加节点到画布
+    addNodes([newNode])
+
+    // 清除拖拽状态
+    draggedNodeType.value = null
+}
 
 /**
  * 计算两个节点的重叠区域和推开方向
@@ -131,6 +265,9 @@ onNodeDrag(({ node: draggedNode }) => {
     }
 })
 
+/**
+ * 处理连接事件
+ */
 function onConnect(params: any) {
   const targetAlreadyConnected = edges.value.some(
     e => e.target === params.target
@@ -141,54 +278,23 @@ function onConnect(params: any) {
     return
   }
 
+  const data = {} as {[key: string]: any}
+
   addEdges([
     {
       ...params,
-      data: { label: `${params.source} → ${params.target}` },
+      data: data,
       type: 'base',
     },
   ])
 }
 
+/**
+ * 处理边双击事件，删除边
+ */
 function onEdgeDoubleClick({ edge }: { edge: Edge }) {
     edges.value = edges.value.filter(e => e.id !== edge.id)
 }
-
-const nodes = ref<Node[]>([
-    {
-        id: '1',
-        type: 'base',
-        position: { x: 250, y: 0 },
-        data: { label: 'Node 1', type: 'start' },
-    },
-    {
-        id: '2',
-        type: 'base',
-        position: { x: 450, y: 0 },
-        data: { label: 'Node 2' },
-    },
-    {
-        id: '3',
-        type: 'base',
-        position: { x: 450, y: 120 },
-        data: { label: 'Node 3' },
-    },
-    {
-        id: '4',
-        type: 'base',
-        position: { x: 650, y: 0 },
-        data: { label: 'Node 4' },
-    },
-    {
-        id: '5',
-        type: 'base',
-        position: { x: 650, y: 120 },
-        data: { label: 'Node 5', type: 'end' },
-    },
-])
-
-// these are our edges
-const edges = ref<Edge[]>([])
 </script>
 
 <style scoped>
@@ -243,15 +349,26 @@ const edges = ref<Edge[]>([])
 }
 .node-list-body > div {
     background: rgba(var(--color-card-2-rgb), 0.8);
-    transition: background 0.3s;
+    transition: background 0.3s, transform 0.2s;
+    margin-top: 5px;
     border-radius: 7px;
     user-select: none;
-    cursor: pointer;
+    cursor: grab;
     padding: 10px;
     display: flex;
 }
 .node-list-body > div:hover {
     background: rgba(var(--color-card-2-rgb), 0.5);
+}
+.node-list-body > div:active {
+    cursor: grabbing;
+    opacity: 0.6;
+}
+.node-list-body > div svg {
+    color: var(--color-font-1);
+    margin-top: 2px;
+    height: 0.9rem;
+    width: 0.9rem;
 }
 .node-list-body > div div {
     flex-direction: column;
@@ -259,10 +376,18 @@ const edges = ref<Edge[]>([])
     margin-left: 10px;
     display: flex;
 }
-.node-list-body > div div span {
+.node-list-body > div div > span {
     color: var(--color-font);
     font-weight: bold;
     font-size: 0.8rem;
+}
+.node-list-body > div div > span > span {
+    background: var(--color-main);
+    color: var(--color-font-r);
+    border-radius: 99px;
+    padding: 1px 5px;
+    margin-right: 5px;
+    font-size: calc(0.8rem - 2px);
 }
 .node-list-body > div div a {
     font-size: 0.75rem;

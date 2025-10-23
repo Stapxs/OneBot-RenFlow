@@ -2,15 +2,15 @@ import { BaseNode } from '../BaseNode'
 import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types'
 
 /**
- * 控制台输出节点
- * 将用户输入的内容输出到控制台
+ *  日志节点
  */
 export class ConsoleNode extends BaseNode {
     metadata: NodeMetadata = {
         id: 'console-log',
-        name: '控制台输出',
-        description: '将内容输出到浏览器控制台',
+        name: '日志',
+        description: '将内容写入到运行日志中',
         category: 'output',
+        icon: 'terminal',
         params: [
             {
                 key: 'message',
@@ -32,9 +32,9 @@ export class ConsoleNode extends BaseNode {
             },
             {
                 key: 'includeInput',
-                label: '包含输入数据',
+                label: '包含输入',
                 type: 'switch',
-                defaultValue: false
+                defaultValue: true
             }
         ]
     }
