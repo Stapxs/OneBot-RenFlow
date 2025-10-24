@@ -48,7 +48,7 @@ pub fn win_create_window(app_handle: AppHandle, options: CreateWindowOptions) ->
             .background_color(tauri::window::Color(0, 0, 0, 1))
             .accept_first_mouse(true)
             .effects(tauri::window::EffectsBuilder::new()
-                .effects(vec![tauri::window::Effect::Sidebar])
+                .effects(vec![tauri::window::Effect::Menu])
                 .build());
     }
 

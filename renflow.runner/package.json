@@ -1,0 +1,54 @@
+{
+  "name": "renflow.runner",
+  "version": "1.0.0",
+  "description": "OneBot-RenFlow runner - Standalone workflow execution engine with OneBot protocol support",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./nodes": {
+      "import": "./dist/nodes/index.js",
+      "types": "./dist/nodes/index.d.ts"
+    },
+    "./workflow": {
+      "import": "./dist/workflow/index.js",
+      "types": "./dist/workflow/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "onebot",
+    "workflow",
+    "automation",
+    "qq",
+    "bot"
+  ],
+  "author": "Stapx Steve",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/jsonpath": "^0.2.4",
+    "@types/node": "^24.9.1",
+    "jsonpath": "^1.1.1",
+    "tiny-pinyin": "^1.3.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "uuid": "^13.0.0"
+  }
+}

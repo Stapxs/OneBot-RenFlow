@@ -386,3 +386,49 @@ pub fn sys_run_proxy() -> u16 {
     return PROXY_PORT.get().unwrap().clone();
 }
 
+use serde::Deserialize;
+
+/// 设置 Store 值
+#[command]
+pub async fn sys_set_store_value(
+    app: AppHandle,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    use tauri_plugin_store::StoreExt;
+
+    let store = app.store(".settings.dat")
+        .map_err(|e| format!("Failed to get store: {}", e))?;
+
+    store.set(key, serde_json::Value::String(value));
+    store.save()
+        .map_err(|e| format!("Failed to save store: {}", e))?;
+
+    Ok(())
+}
+
+/// 获取 Store 值
+#[command]
+pub async fn sys_get_store_value(
+    app: AppHandle,
+    key: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_store::StoreExt;
+
+    let store = app.store(".settings.dat")
+        .map_err(|e| format!("Failed to get store: {}", e))?;
+
+    let value = store.get(&key);
+
+    match value {
+        Some(v) => {
+            if let Some(s) = v.as_str() {
+                Ok(Some(s.to_string()))
+            } else {
+                Ok(Some(v.to_string()))
+            }
+        }
+        None => Ok(None),
+    }
+}
+

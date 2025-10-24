@@ -1,5 +1,3 @@
-import app from '../main'
-
 import type { InvokeArgs, InvokeOptions } from '@tauri-apps/api/core'
 import { Logger, LogType, PopInfo, PopType } from '@app/functions/base'
 import { reactive } from 'vue'

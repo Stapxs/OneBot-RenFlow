@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import type { NodeParam } from '@app/functions/nodes/types'
-import { ref, watch } from 'vue'
+import type { NodeParam } from 'renflow.runner'
+import { ref, computed } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
+import ConditionParam from './ConditionParam.vue'
 
 interface Props {
+    nodeId: string
     params: NodeParam[]
     modelValue: Record<string, any>
 }
@@ -13,8 +16,37 @@ const emit = defineEmits<{
     'close': []
 }>()
 
+const { getIncomers, findNode } = useVueFlow()
+
 // 本地参数值
 const localValues = ref<Record<string, any>>({ ...props.modelValue })
+
+// 获取可用参数（来自上游节点的输出）
+const availableParameters = computed(() => {
+    const parameters: Array<{ label: string; value: string }> = []
+
+    // 获取当前节点
+    const currentNode = findNode(props.nodeId)
+    if (!currentNode) return parameters
+
+    // 获取所有上游节点
+    const incomers = getIncomers(currentNode)
+
+    for (const incomer of incomers) {
+        const metadata = incomer.data?.metadata
+        if (metadata?.outputSchema) {
+            // 添加上游节点的输出字段
+            for (const field of metadata.outputSchema) {
+                parameters.push({
+                    label: `${incomer.data?.label || incomer.id}.${field.label}`,
+                    value: `input.${field.key}`
+                })
+            }
+        }
+    }
+
+    return parameters
+})
 
 // 初始化参数默认值
 props.params.forEach(param => {
@@ -46,13 +78,13 @@ const cancelSettings = () => {
             <div class="node-settings-panel ss-card">
                 <div class="settings-header">
                     <h3>节点设置</h3>
-                    <button class="close-btn" @click="cancelSettings" title="关闭">
+                    <button title="关闭" class="close-btn" @click="cancelSettings">
                         <font-awesome-icon :icon="['fas', 'times']" />
                     </button>
                 </div>
 
                 <div class="settings-body">
-                    <div class="param-item" v-for="param in params" :key="param.key">
+                    <div v-for="param in params" :key="param.key" class="param-item">
                         <label v-if="param.type != 'switch'" :class="{ required: param.required }">
                             {{ param.label }}
                         </label>
@@ -63,38 +95,29 @@ const cancelSettings = () => {
                             type="text"
                             :placeholder="param.placeholder"
                             :value="localValues[param.key]"
-                            @input="updateParam(param.key, ($event.target as HTMLInputElement).value)"
-                        />
+                            @input="updateParam(param.key, ($event.target as HTMLInputElement).value)">
 
                         <!-- number 类型 -->
-                        <input
-                            v-else-if="param.type === 'number'"
+                        <input v-else-if="param.type === 'number'"
                             type="number"
                             :placeholder="param.placeholder"
                             :value="localValues[param.key]"
-                            @input="updateParam(param.key, Number(($event.target as HTMLInputElement).value))"
-                        />
+                            @input="updateParam(param.key, Number(($event.target as HTMLInputElement).value))">
 
                         <!-- textarea 类型 -->
-                        <textarea
-                            v-else-if="param.type === 'textarea'"
+                        <textarea v-else-if="param.type === 'textarea'"
+                            rows="4"
                             :placeholder="param.placeholder"
                             :value="localValues[param.key]"
-                            @input="updateParam(param.key, ($event.target as HTMLTextAreaElement).value)"
-                            rows="4"
-                        />
+                            @input="updateParam(param.key, ($event.target as HTMLTextAreaElement).value)" />
 
                         <!-- select 类型 -->
-                        <select
-                            v-else-if="param.type === 'select'"
+                        <select v-else-if="param.type === 'select'"
                             :value="localValues[param.key]"
-                            @change="updateParam(param.key, ($event.target as HTMLSelectElement).value)"
-                        >
-                            <option
-                                v-for="option in param.options"
+                            @change="updateParam(param.key, ($event.target as HTMLSelectElement).value)">
+                            <option v-for="option in param.options"
                                 :key="option.value"
-                                :value="option.value"
-                            >
+                                :value="option.value">
                                 {{ option.label }}
                             </option>
                         </select>
@@ -104,11 +127,17 @@ const cancelSettings = () => {
                             <input
                                 type="checkbox"
                                 :checked="localValues[param.key]"
-                                @change="updateParam(param.key, ($event.target as HTMLInputElement).checked)"
-                            />
-                            <div></div>
+                                @change="updateParam(param.key, ($event.target as HTMLInputElement).checked)">
+                            <div />
                             <span>{{ param.label }}</span>
                         </label>
+
+                        <!-- condition 类型 -->
+                        <ConditionParam
+                            v-else-if="param.type === 'condition'"
+                            :model-value="localValues[param.key] || { parameter: 'input', mode: 'exists', value: '' }"
+                            :available-parameters="availableParameters"
+                            @update:model-value="updateParam(param.key, $event)" />
                     </div>
                 </div>
 
@@ -145,6 +174,50 @@ const cancelSettings = () => {
     display: flex;
     flex-direction: column;
     padding: 10px;
+}
+
+/* Panel 进入和退出动画 */
+.panel-enter-active {
+    transition: opacity 0.2s ease-out;
+}
+
+.panel-leave-active {
+    transition: opacity 0.2s ease-in;
+}
+
+.panel-enter-from,
+.panel-leave-to {
+    opacity: 0;
+}
+
+.panel-enter-active .node-settings-panel {
+    animation: panelSlideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel-leave-active .node-settings-panel {
+    animation: panelSlideDown 0.2s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+@keyframes panelSlideUp {
+    from {
+        transform: translateY(30px) scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes panelSlideDown {
+    from {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: translateY(20px) scale(0.98);
+        opacity: 0;
+    }
 }
 
 .settings-header {

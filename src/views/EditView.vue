@@ -1,8 +1,54 @@
 <template>
     <div class="edit-view" @drop="onDrop">
+        <!-- 工具栏 -->
+        <div class="toolbar">
+            <button class="toolbar-btn save-btn" @click="saveWorkflow">
+                <font-awesome-icon :icon="['fas', 'fa-floppy-disk']" />
+                保存
+            </button>
+            <button class="toolbar-btn" @click="handleLoadClick">
+                <font-awesome-icon :icon="['fas', 'fa-folder-open']" />
+                加载
+            </button>
+            <button class="toolbar-btn" @click="exportExecutionData">
+                <font-awesome-icon :icon="['fas', 'fa-file-export']" />
+                导出执行数据
+            </button>
+            <button class="toolbar-btn execute-btn" :disabled="isExecuting" @click="executeWorkflow">
+                <font-awesome-icon :icon="['fas', isExecuting ? 'fa-spinner' : 'fa-play']" :spin="isExecuting" />
+                {{ isExecuting ? '执行中...' : '执行流程' }}
+            </button>
+        </div>
+
+        <!-- 加载确认对话框 -->
+        <Transition name="modal">
+            <div v-if="showLoadConfirmDialog" class="modal-overlay" @click="showLoadConfirmDialog = false">
+                <div class="modal-dialog" @click.stop>
+                    <div class="modal-header">
+                        <h3>确认加载</h3>
+                        <button class="modal-close" @click="showLoadConfirmDialog = false">
+                            <font-awesome-icon :icon="['fas', 'fa-xmark']" />
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p>加载工作流将会覆盖当前的编辑内容，是否继续？</p>
+                        <p class="modal-hint">建议先保存当前工作流再加载其他工作流</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="modal-btn modal-btn-cancel" @click="showLoadConfirmDialog = false">
+                            取消
+                        </button>
+                        <button class="modal-btn modal-btn-confirm" @click="confirmLoad">
+                            确认加载
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Transition>
+
         <VueFlow v-model:nodes="nodes" v-model:edges="edges"
             @connect="onConnect"
-            @edgeDoubleClick="onEdgeDoubleClick"
+            @edge-double-click="onEdgeDoubleClick"
             @dragover="onDragOver">
             <Controls />
             <Background
@@ -39,11 +85,8 @@
                     <div class="node-list-search">
                         <label>
                             <font-awesome-icon :icon="['fas', 'fa-magnifying-glass']" />
-                            <input
-                                type="text"
-                                placeholder="搜索分类或名称……"
-                                v-model="searchKeyword"
-                            />
+                            <input v-model="searchKeyword" type="text"
+                                placeholder="搜索分类或名称……">
                         </label>
                     </div>
                     <div class="node-list-body">
@@ -67,9 +110,9 @@
 </template>
 
 <script setup lang="ts">
-import { NodeManager } from '@app/functions/nodes'
+import { LogLevel, NodeManager, WorkflowConverter, WorkflowEngine } from 'renflow.runner'
 
-import type { NodeMetadata } from '@app/functions/nodes/types'
+import type { NodeMetadata, VueFlowWorkflow } from 'renflow.runner'
 import type { Node, Edge } from '@vue-flow/core'
 
 import { ref, computed, onMounted } from 'vue'
@@ -87,15 +130,26 @@ import TriggerNode from '@app/components/nodes/TriggerNode.vue'
 import NoteNode from '@app/components/nodes/NoteNode.vue'
 import IfElseNode from '@app/components/nodes/IfElseNode.vue'
 
+import { WorkflowStorage } from '@app/functions/workflow'
+import type { WorkflowData } from '@app/functions/workflow'
+import { toast } from '@app/functions/toast'
+import { Logger, LogType } from '@app/functions/base'
+
 const route = useRoute()
 const { onNodeDrag, getIntersectingNodes, updateNode, addEdges, addNodes, project } = useVueFlow()
-const nodeManager = new NodeManager()
+const nodeManager = new NodeManager(LogLevel.DEBUG)
+const workflowConverter = new WorkflowConverter()
+const workflowEngine = new WorkflowEngine()
 
-// 是否为开发环境
-const isDev = import.meta.env.DEV
+const logger = new Logger()
+
+// 执行状态
+const isExecuting = ref(false)
+const executingNodeId = ref<string | null>(null)
 
 // 工作流信息
 const workflowInfo = ref({
+    id: '' as string | undefined,
     triggerType: '',
     triggerTypeLabel: '',
     triggerName: '',
@@ -104,11 +158,18 @@ const workflowInfo = ref({
     description: ''
 })
 
+// 显示加载对话框
+const showLoadDialog = ref(false)
+
+// 显示加载确认对话框
+const showLoadConfirmDialog = ref(false)
+
 // 从 URL 参数获取工作流信息
-onMounted(() => {
+onMounted(async () => {
     const query = route.query
     if (query.triggerType && query.triggerName && query.name) {
         workflowInfo.value = {
+            id: query.id as string | undefined,
             triggerType: query.triggerType as string,
             triggerTypeLabel: query.triggerTypeLabel as string || query.triggerType as string,
             triggerName: query.triggerName as string,
@@ -116,20 +177,275 @@ onMounted(() => {
             name: query.name as string,
             description: (query.description as string) || ''
         }
-        console.log('工作流信息:', workflowInfo.value)
 
-        // 创建触发器节点
-        nodes.value = [{
-            id: 'node-trigger',
-            type: 'trigger',
-            position: { x: 0, y: 0 },
-            data: {
-                triggerType: workflowInfo.value.triggerTypeLabel,
-                triggerName: workflowInfo.value.triggerLabel
-            }
-        }]
+        logger.add(LogType.INFO, '工作流信息:', workflowInfo.value)
+
+        // 如果有 ID，尝试加载工作流
+        if (query.id) {
+            await loadWorkflowById(query.id as string)
+        } else {
+            // 创建触发器节点
+            nodes.value = [{
+                id: 'node-trigger',
+                type: 'trigger',
+                position: { x: 0, y: 0 },
+                data: {
+                    triggerType: workflowInfo.value.triggerTypeLabel,
+                    triggerName: workflowInfo.value.triggerLabel
+                }
+            }]
+        }
+
+        // 更新节点 ID 计数器
+        updateNodeIdCounter()
     }
 })
+
+/**
+ * 保存工作流
+ */
+async function saveWorkflow() {
+    try {
+        // 调试：打印当前 nodes 数据
+        logger.add(LogType.DEBUG, '准备保存的 nodes:', JSON.parse(JSON.stringify(nodes.value)))
+        logger.add(LogType.DEBUG, '准备保存的 edges:', JSON.parse(JSON.stringify(edges.value)))
+
+        const workflowData: Partial<WorkflowData> = {
+            id: workflowInfo.value.id,
+            name: workflowInfo.value.name,
+            description: workflowInfo.value.description,
+            triggerType: workflowInfo.value.triggerType,
+            triggerTypeLabel: workflowInfo.value.triggerTypeLabel,
+            triggerName: workflowInfo.value.triggerName,
+            triggerLabel: workflowInfo.value.triggerLabel,
+            nodes: JSON.parse(JSON.stringify(nodes.value)), // 深拷贝确保数据完整
+            edges: JSON.parse(JSON.stringify(edges.value))
+        }
+
+        const saved = await WorkflowStorage.save(workflowData)
+        workflowInfo.value.id = saved.id
+
+        // 使用 Toast 通知
+        toast.success(`工作流已保存: ${saved.name}`)
+        logger.add(LogType.INFO, '工作流已保存:', saved)
+    } catch (error) {
+        toast.error('保存工作流失败')
+        logger.error(error as unknown as Error, '保存工作流失败')
+    }
+}
+
+/**
+ * 显示加载确认对话框
+ */
+function handleLoadClick() {
+    if (nodes.value.length > 1 || edges.value.length > 0) {
+        // 如果有未保存的内容，显示确认对话框
+        showLoadConfirmDialog.value = true
+    } else {
+        // 直接显示加载对话框
+        showLoadDialog.value = true
+    }
+}
+
+/**
+ * 确认加载
+ */
+function confirmLoad() {
+    showLoadConfirmDialog.value = false
+    showLoadDialog.value = true
+}
+
+/**
+ * 根据 ID 加载工作流
+ */
+async function loadWorkflowById(id: string) {
+    try {
+        const workflow = await WorkflowStorage.load(id)
+        if (workflow) {
+            logger.add(LogType.INFO, '加载的工作流数据:', workflow)
+            logger.add(LogType.DEBUG, '加载的 nodes:', workflow.nodes)
+            logger.add(LogType.DEBUG, '加载的 edges:', workflow.edges)
+
+            workflowInfo.value = {
+                id: workflow.id,
+                name: workflow.name,
+                description: workflow.description,
+                triggerType: workflow.triggerType,
+                triggerTypeLabel: workflow.triggerTypeLabel,
+                triggerName: workflow.triggerName,
+                triggerLabel: workflow.triggerLabel
+            }
+
+            // 确保完整恢复节点和边数据
+            nodes.value = workflow.nodes || []
+            edges.value = workflow.edges || []
+
+            // 更新节点 ID 计数器，避免新节点 ID 冲突
+            updateNodeIdCounter()
+
+            // 使用 Toast 通知
+            toast.success(`工作流已加载: ${workflow.name}`)
+            logger.add(LogType.INFO, '工作流已加载完成，当前 nodes.value:', nodes.value)
+        } else {
+            toast.error('工作流不存在')
+        }
+    } catch (error) {
+        toast.error('加载工作流失败')
+        logger.error(error as unknown as Error, '加载工作流失败')
+    }
+}
+
+/**
+ * 导出执行数据
+ */
+function exportExecutionData() {
+    try {
+        // 检查是否有节点
+        if (nodes.value.length === 0) {
+            toast.error('当前工作流为空，无法导出')
+            return
+        }
+
+        // 构建 VueFlowWorkflow 数据
+        const vueFlowWorkflow: VueFlowWorkflow = {
+            id: workflowInfo.value.id || `workflow_temp_${Date.now()}`,
+            name: workflowInfo.value.name || '未命名工作流',
+            description: workflowInfo.value.description || '',
+            triggerType: workflowInfo.value.triggerType,
+            triggerTypeLabel: workflowInfo.value.triggerTypeLabel,
+            triggerName: workflowInfo.value.triggerName,
+            triggerLabel: workflowInfo.value.triggerLabel,
+            nodes: JSON.parse(JSON.stringify(nodes.value)),
+            edges: JSON.parse(JSON.stringify(edges.value)),
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        }
+
+        // 转换为执行数据
+        const executionData = workflowConverter.convert(vueFlowWorkflow)
+
+        // 验证执行数据
+        const validation = workflowConverter.validate(executionData)
+        if (!validation.valid) {
+            logger.add(LogType.ERR, '工作流验证失败:', validation.errors)
+            toast.error(`工作流验证失败:\n${validation.errors.join('\n')}`)
+            return
+        }
+
+        // 导出为 JSON 文件
+        const jsonStr = JSON.stringify(executionData, null, 2)
+        const blob = new Blob([jsonStr], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${executionData.name}_execution.json`
+        a.click()
+        URL.revokeObjectURL(url)
+
+        toast.success('执行数据已导出')
+        logger.add(LogType.INFO, '导出的执行数据:', executionData)
+    } catch (error) {
+        toast.error('导出执行数据失败')
+        logger.error(error as unknown as Error, '导出执行数据失败')
+    }
+}
+
+/**
+ * 执行工作流
+ */
+async function executeWorkflow() {
+    try {
+        // 检查是否有节点
+        if (nodes.value.length === 0) {
+            toast.error('当前工作流为空，无法执行')
+            return
+        }
+
+        isExecuting.value = true
+        executingNodeId.value = null
+
+        // 构建 VueFlowWorkflow 数据
+        const vueFlowWorkflow: VueFlowWorkflow = {
+            id: workflowInfo.value.id || `workflow_temp_${Date.now()}`,
+            name: workflowInfo.value.name || '未命名工作流',
+            description: workflowInfo.value.description || '',
+            triggerType: workflowInfo.value.triggerType,
+            triggerTypeLabel: workflowInfo.value.triggerTypeLabel,
+            triggerName: workflowInfo.value.triggerName,
+            triggerLabel: workflowInfo.value.triggerLabel,
+            nodes: JSON.parse(JSON.stringify(nodes.value)),
+            edges: JSON.parse(JSON.stringify(edges.value)),
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        }
+
+        // 转换为执行数据
+        const executionData = workflowConverter.convert(vueFlowWorkflow)
+
+        // 验证执行数据
+        const validation = workflowConverter.validate(executionData)
+        if (!validation.valid) {
+            logger.add(LogType.ERR, '工作流验证失败:', validation.errors)
+            toast.error(`工作流验证失败:\n${validation.errors.join('\n')}`)
+            isExecuting.value = false
+            return
+        }
+
+        toast.success('开始执行工作流')
+        logger.add(LogType.INFO, '开始执行工作流:', executionData)
+
+        // 执行工作流（带回调和延迟）
+        const result = await workflowEngine.execute(executionData, null, {
+            minDelay: 500, // 前端模式最少 0.5s 延迟
+            timeout: 60000, // 60 秒超时
+            callback: {
+                onNodeStart: async (nodeId) => {
+                    executingNodeId.value = nodeId
+                    highlightNode(nodeId, true)
+                },
+                onNodeComplete: async (nodeId) => {
+                    highlightNode(nodeId, false)
+                },
+                onNodeError: async (nodeId, error) => {
+                    logger.add(LogType.ERR, `节点执行失败: ${nodeId}`, error)
+                    highlightNode(nodeId, false)
+                    toast.error(`节点执行失败: ${error.message}`)
+                },
+                onWorkflowComplete: async (workflowResult) => {
+                    logger.add(LogType.INFO, '工作流执行完成:', workflowResult)
+                    executingNodeId.value = null
+
+                    if (workflowResult.success) {
+                        toast.success('工作流执行成功')
+                        logger.add(LogType.INFO, '执行日志:', workflowResult.logs)
+                    } else {
+                        toast.error(`工作流执行失败: ${workflowResult.error}`)
+                    }
+                }
+            }
+        })
+
+        logger.add(LogType.INFO, '最终结果:', result)
+    } catch (error) {
+        toast.error('执行工作流失败')
+        logger.error(error as unknown as Error, '执行工作流失败')
+    } finally {
+        isExecuting.value = false
+        executingNodeId.value = null
+    }
+}
+
+/**
+ * 高亮节点
+ */
+function highlightNode(nodeId: string, highlight: boolean) {
+    const node = nodes.value.find(n => n.id === nodeId)
+    if (node) {
+        updateNode(nodeId, {
+            class: highlight ? 'executing' : ''
+        })
+    }
+}
 
 // 搜索关键词
 const searchKeyword = ref('')
@@ -171,6 +487,26 @@ const edges = ref<Edge[]>([])
 
 // 节点 ID 计数器
 let nodeIdCounter = 0
+
+/**
+ * 更新节点 ID 计数器
+ * 确保新节点 ID 不会与现有节点冲突
+ */
+function updateNodeIdCounter() {
+    let maxId = 0
+    nodes.value.forEach(node => {
+        // 提取节点 ID 中的数字部分
+        const match = node.id.match(/^node-(\d+)$/)
+        if (match) {
+            const id = parseInt(match[1])
+            if (id > maxId) {
+                maxId = id
+            }
+        }
+    })
+    // 设置计数器为最大值 + 1
+    nodeIdCounter = maxId + 1
+}
 
 // 拖拽状态
 const draggedNodeType = ref<NodeMetadata | null>(null)
@@ -311,7 +647,7 @@ function onConnect(params: any) {
   )
 
   if (targetAlreadyConnected) {
-    console.warn(`节点 ${params.target} 已经有输入连接`)
+    logger.add(LogType.ERR, `节点 ${params.target} 已经有输入连接`)
     return
   }
 
@@ -339,6 +675,228 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
     background-color: var(--color-bg);
     width: 100%;
     height: 100vh;
+    position: relative;
+}
+
+.toolbar {
+    width: fit-content;
+    position: absolute;
+    bottom: 15px;
+    left: calc(50% - 120px);
+    transform: translateX(-50%);
+    height: 50px;
+    background: rgba(var(--color-card-rgb), 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    padding: 0 5px;
+    justify-content: space-between;
+}
+
+.toolbar-btn {
+    background: var(--color-card-2);
+    margin: 5px;
+    color: var(--color-font);
+    transition: all 0.3s;
+    align-items: center;
+    border-radius: 7px;
+    font-size: 0.7rem;
+    padding: 8px 15px;
+    cursor: pointer;
+    display: flex;
+    border: none;
+    gap: 6px;
+}
+
+.toolbar-btn:hover {
+    background: rgba(var(--color-main-rgb), 0.2);
+    border-color: var(--color-main);
+}
+
+.toolbar-btn:active {
+    transform: scale(0.95);
+}
+
+.toolbar-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.save-btn {
+    border-color: var(--color-main);
+}
+
+.save-btn:hover {
+    background: var(--color-main);
+    color: var(--color-font-r);
+}
+
+.execute-btn {
+    background: var(--color-main);
+    color: var(--color-font-r);
+}
+
+.execute-btn:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.execute-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* 模态对话框 */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(var(--color-bg-rgb), 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-dialog {
+    background: rgba(var(--color-card-rgb), 0.95);
+    backdrop-filter: blur(20px);
+    border-radius: 12px;box-shadow:0 0 5px var(--color-shader);
+    max-width: 450px;
+    width: 90%;
+}
+
+/* Modal 进入和退出动画 */
+.modal-enter-active {
+    transition: opacity 0.2s ease-out;
+}
+
+.modal-leave-active {
+    transition: opacity 0.2s ease-in;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+    opacity: 0;
+}
+
+.modal-enter-active .modal-dialog {
+    animation: slideUp 0.3s ease-out;
+}
+
+.modal-leave-active .modal-dialog {
+    animation: slideDown 0.2s ease-in;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+}
+
+.modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid rgba(var(--color-font-rgb), 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--color-font);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: transparent;
+    border: none;
+    color: var(--color-font-2);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 1.2rem;
+    transition: color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-close:hover {
+    color: var(--color-font);
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-body p {
+    margin: 0 0 12px 0;
+    color: var(--color-font);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.modal-hint {
+    color: var(--color-font-2);
+    font-size: 0.85rem !important;
+}
+
+.modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid rgba(var(--color-font-rgb), 0.1);
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.modal-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.modal-btn-cancel {
+    background: rgba(var(--color-font-rgb), 0.1);
+    color: var(--color-font);
+}
+
+.modal-btn-cancel:hover {
+    background: rgba(var(--color-font-rgb), 0.15);
+}
+
+.modal-btn-confirm {
+    background: var(--color-main);
+    color: var(--color-font-r);
+}
+
+.modal-btn-confirm:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
 }
 
 .node-list {
@@ -359,6 +917,11 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
 
 :deep(.vue-flow__node.dragging) {
     transition: none;
+}
+
+/* 执行中的节点高亮样式 */
+:deep(.vue-flow__node.executing > div.ss-card) {
+    outline: 2px solid var(--color-main);
 }
 
 .node-list-search {

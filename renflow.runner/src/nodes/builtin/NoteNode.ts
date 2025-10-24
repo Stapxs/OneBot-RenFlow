@@ -1,5 +1,5 @@
-import { BaseNode } from '../BaseNode'
-import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types'
+import { BaseNode } from '../BaseNode.js'
+import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types.js'
 
 /**
  * 注释节点
@@ -39,6 +39,14 @@ export class NoteNode extends BaseNode {
                     { label: '红色', value: 'red' },
                     { label: '紫色', value: 'purple' }
                 ]
+            }
+        ],
+        outputSchema: [
+            {
+                key: 'input',
+                label: '原始输入',
+                type: 'any',
+                description: '透传的上游节点输出数据'
             }
         ]
     }

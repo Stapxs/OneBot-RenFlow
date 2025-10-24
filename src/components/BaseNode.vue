@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { Position, Handle, useVueFlow } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
-import type { NodeParam } from '@app/functions/nodes/types'
+import type { NodeParam } from 'renflow.runner'
 import { ref, computed } from 'vue'
 import NodeSettingsPanel from './NodeSettingsPanel.vue'
+import ConditionParam from './ConditionParam.vue'
 
 const props = defineProps<NodeProps>()
 const isDev = import.meta.env.DEV
 
-const { removeNodes } = useVueFlow()
+const { removeNodes, getIncomers, findNode, updateNode } = useVueFlow()
 
 // 节点参数值
-const paramValues = ref<Record<string, any>>({})
+const paramValues = ref<Record<string, any>>(props.data?.params || {})
 
 // 设置面板显示状态
 const showSettingsPanel = ref(false)
@@ -19,6 +20,33 @@ const showSettingsPanel = ref(false)
 // 从 metadata 获取参数配置
 const params = computed<NodeParam[]>(() => {
     return props.data?.metadata?.params || []
+})
+
+// 获取可用参数（来自上游节点的输出）
+const availableParameters = computed(() => {
+    const parameters: Array<{ label: string; value: string }> = []
+
+    // 获取当前节点
+    const currentNode = findNode(props.id)
+    if (!currentNode) return parameters
+
+    // 获取所有上游节点
+    const incomers = getIncomers(currentNode)
+
+    for (const incomer of incomers) {
+        const metadata = incomer.data?.metadata
+        if (metadata?.outputSchema) {
+            // 添加上游节点的输出字段
+            for (const field of metadata.outputSchema) {
+                parameters.push({
+                    label: `${incomer.data?.label || incomer.id}.${field.label}`,
+                    value: `input.${field.key}`
+                })
+            }
+        }
+    }
+
+    return parameters
 })
 
 // 判断是否需要显示设置按钮
@@ -37,25 +65,34 @@ const displayParams = computed(() => {
     return params.value.filter(p => p.type !== 'settings')
 })
 
-// 设置面板中的参数（排除 settings 类型）
+// 设置面板中的参数(排除 settings 类型)
 const settingsParams = computed(() => {
     return params.value.filter(p => p.type !== 'settings')
 })
 
-// 初始化参数默认值
+// 更新节点数据的辅助函数
+const updateNodeData = (newParams: Record<string, any>) => {
+    updateNode(props.id, {
+        data: {
+            ...props.data,
+            params: { ...newParams }
+        }
+    })
+}
+
+// 初始化参数默认值(只在参数值未设置时应用默认值)
 params.value.forEach(param => {
-    if (param.defaultValue !== undefined && paramValues.value[param.key] === undefined) {
+    if (paramValues.value[param.key] === undefined && param.defaultValue !== undefined) {
         paramValues.value[param.key] = param.defaultValue
+        // 同步到 data.params
+        updateNodeData(paramValues.value)
     }
 })
 
 // 更新参数值
 const updateParam = (key: string, value: any) => {
     paramValues.value[key] = value
-    // 更新节点 data 中的参数
-    if (props.data) {
-        props.data.params = { ...paramValues.value }
-    }
+    updateNodeData(paramValues.value)
 }
 
 // 打开设置面板
@@ -71,9 +108,7 @@ const closeSettings = () => {
 // 更新设置
 const updateSettings = (newValues: Record<string, any>) => {
     paramValues.value = { ...newValues }
-    if (props.data) {
-        props.data.params = { ...paramValues.value }
-    }
+    updateNodeData(paramValues.value)
 }
 
 // 删除节点
@@ -93,75 +128,67 @@ defineEmits(['updateNodeInternals'])
                 <font-awesome-icon :icon="['fas', data.metadata.icon || 'fa-cube']" />
                 <span class="node-label">{{ data.label }}</span>
             </div>
-            <button class="delete-btn" @click.stop="deleteNode" title="删除节点">
+            <button class="delete-btn" title="删除节点" @click.stop="deleteNode">
                 <font-awesome-icon :icon="['fas', 'times']" />
             </button>
         </header>
         <div v-else>{{ data.label }}</div>
 
         <!-- 设置按钮 -->
-        <div class="node-settings-btn" v-if="shouldShowSettings">
-            <button @click.stop="openSettings" title="节点设置">
+        <div v-if="shouldShowSettings" class="node-settings-btn">
+            <button title="节点设置" @click.stop="openSettings">
                 <span>节点设置</span>
                 <font-awesome-icon :icon="['fas', 'cog']" />
             </button>
         </div>
 
         <!-- 参数列表 -->
-        <div class="node-params" v-if="displayParams.length > 0">
-            <div class="param-item" v-for="param in displayParams" :key="param.key">
+        <div v-if="displayParams.length > 0" class="node-params">
+            <div v-for="param in displayParams" :key="param.key" class="param-item">
                 <label v-if="param.type != 'switch'" :class="{ required: param.required }">
                     {{ param.label }}
                 </label>
 
                 <!-- input 类型 -->
-                <input
-                    v-if="param.type === 'input'"
+                <input v-if="param.type === 'input'"
                     type="text"
                     :placeholder="param.placeholder"
                     :value="paramValues[param.key]"
                     @input="updateParam(param.key, ($event.target as HTMLInputElement).value)"
                     @mousedown.stop
-                    @pointerdown.stop
-                />
+                    @pointerdown.stop>
 
                 <!-- number 类型 -->
-                <input
-                    v-else-if="param.type === 'number'"
+                <input v-else-if="param.type === 'number'"
                     type="number"
                     :placeholder="param.placeholder"
                     :value="paramValues[param.key]"
                     @input="updateParam(param.key, Number(($event.target as HTMLInputElement).value))"
                     @mousedown.stop
-                    @pointerdown.stop
-                />
+                    @pointerdown.stop>
 
                 <!-- textarea 类型 -->
-                <textarea
-                    v-else-if="param.type === 'textarea'"
+                <textarea v-else-if="param.type === 'textarea'"
+                    rows="3"
                     :placeholder="param.placeholder"
                     :value="paramValues[param.key]"
                     @input="updateParam(param.key, ($event.target as HTMLTextAreaElement).value)"
-                    rows="3"
                     @mousedown.stop
-                    @pointerdown.stop
-                />
+                    @pointerdown.stop />
 
                 <!-- select 类型 -->
-                <select
-                    v-else-if="param.type === 'select'"
+                <select v-else-if="param.type === 'select'"
                     :value="paramValues[param.key]"
                     @change="updateParam(param.key, ($event.target as HTMLSelectElement).value)"
                     @mousedown.stop
-                    @pointerdown.stop
-                >
+                    @pointerdown.stop>
                     <option v-for="option in param.options" :key="option.value" :value="option.value">
                         {{ option.label }}
                     </option>
                 </select>
 
                 <!-- switch 类型 -->
-                 <div v-else-if="param.type === 'switch'" class="switch-container">
+                <div v-else-if="param.type === 'switch'" class="switch-container">
                     <label :class="{ required: param.required }">
                         {{ param.label }}
                     </label>
@@ -173,25 +200,37 @@ defineEmits(['updateNodeInternals'])
                             <div />
                         </div>
                     </label>
-                 </div>
+                </div>
+
+                <!-- condition 类型 -->
+                <div v-else-if="param.type === 'condition'" class="condition-container">
+                    <ConditionParam
+                        :model-value="paramValues[param.key] || { parameter: 'input', mode: 'exists', value: '' }"
+                        :available-parameters="availableParameters"
+                        @update:model-value="updateParam(param.key, $event)"
+                        @mousedown.stop
+                        @pointerdown.stop />
+                </div>
             </div>
         </div>
 
-        <div class="node-pos" v-if="isDev">
-            <span>({{ Math.round(props.position.x) }}, {{ Math.round(props.position.y) }})</span>
+        <div v-if="isDev" class="node-tip">
+            <span>{{ props.id }}</span>
         </div>
     </div>
 
     <Handle v-if="data.type != 'end'" type="source" :position="Position.Right" />
 
     <!-- 设置面板弹窗 -->
-    <NodeSettingsPanel
-        v-if="showSettingsPanel"
-        :params="settingsParams"
-        v-model="paramValues"
-        @update:modelValue="updateSettings"
-        @close="closeSettings"
-    />
+    <Transition name="panel">
+        <NodeSettingsPanel
+            v-if="showSettingsPanel"
+            v-model="paramValues"
+            :node-id="props.id"
+            :params="settingsParams"
+            @update:model-value="updateSettings"
+            @close="closeSettings" />
+    </Transition>
 </template>
 
 <style scoped>
@@ -410,7 +449,7 @@ defineEmits(['updateNodeInternals'])
     margin-left: calc(100% - var(--switch-height) + var(--switch-dot-margin) - 4px);
 }
 
-.node-pos {
+.node-tip {
     transform: translateY(50%);
     justify-content: center;
     position: absolute;
@@ -420,7 +459,7 @@ defineEmits(['updateNodeInternals'])
     bottom: 0;
     left: 0;
 }
-.node-pos span {
+.node-tip span {
     background: var(--color-main);
     color: var(--color-font-r);
     border-radius: 99px;

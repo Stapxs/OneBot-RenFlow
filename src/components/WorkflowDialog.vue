@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 
-interface Props {
+defineProps<{
     modelValue: boolean
-}
+}>()
 
-const props = defineProps<Props>()
 const emit = defineEmits<{
     'update:modelValue': [value: boolean]
     'create': [workflow: WorkflowConfig]
@@ -29,12 +28,6 @@ const formData = ref<WorkflowConfig>({
     name: '',
     description: ''
 })
-
-// 触发类型显示文本映射
-const triggerTypeLabels = {
-    event: '事件',
-    notification: '通知'
-}
 
 // 触发名称选项
 const triggerNameOptions = computed(() => {
@@ -103,6 +96,7 @@ const create = () => {
     formData.value = {
         triggerType: 'event',
         triggerName: 'new_msg',
+        triggerLabel: '新消息 (new_msg)',
         customTriggerName: '',
         name: '',
         description: ''
@@ -116,7 +110,7 @@ const create = () => {
             <div class="workflow-dialog-panel ss-card">
                 <div class="dialog-header">
                     <h3>新建工作流</h3>
-                    <button class="close-btn" @click="close" title="关闭">
+                    <button title="关闭" class="close-btn" @click="close">
                         <font-awesome-icon :icon="['fas', 'times']" />
                     </button>
                 </div>
@@ -138,8 +132,7 @@ const create = () => {
                             <option
                                 v-for="option in triggerNameOptions"
                                 :key="option.value"
-                                :value="option.value"
-                            >
+                                :value="option.value">
                                 {{ option.label }}
                             </option>
                         </select>
@@ -148,21 +141,17 @@ const create = () => {
                     <!-- 自定义触发名称 -->
                     <div v-if="showCustomTriggerName" class="form-item">
                         <label class="required">自定义触发名称</label>
-                        <input
+                        <input v-model="formData.customTriggerName"
                             type="text"
-                            v-model="formData.customTriggerName"
-                            placeholder="请输入自定义触发名称"
-                        />
+                            placeholder="请输入自定义触发名称">
                     </div>
 
                     <!-- 工作流名称 -->
                     <div class="form-item">
                         <label class="required">工作流名称</label>
-                        <input
+                        <input v-model="formData.name"
                             type="text"
-                            v-model="formData.name"
-                            placeholder="请输入工作流名称"
-                        />
+                            placeholder="请输入工作流名称">
                     </div>
 
                     <!-- 工作流备注 -->
@@ -171,14 +160,13 @@ const create = () => {
                         <textarea
                             v-model="formData.description"
                             placeholder="请输入工作流备注(可选)"
-                            rows="3"
-                        />
+                            rows="3" />
                     </div>
                 </div>
 
                 <div class="dialog-footer">
                     <button class="cancel-btn" @click="close">取消</button>
-                    <button class="create-btn" @click="create" :disabled="!isValid">创建</button>
+                    <button class="create-btn" :disabled="!isValid" @click="create">创建</button>
                 </div>
             </div>
         </div>

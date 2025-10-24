@@ -1,8 +1,8 @@
-import { ConsoleNode } from './ConsoleNode'
-import { NoteNode } from './NoteNode'
-import { SendTextNode } from './SendTextNode'
-import { CustomJSNode } from './CustomJSNode'
-import { IfElseNode } from './IfElseNode'
+import { ConsoleNode } from './ConsoleNode.js'
+import { NoteNode } from './NoteNode.js'
+import { SendTextNode } from './SendTextNode.js'
+import { CustomJSNode } from './CustomJSNode.js'
+import { IfElseNode } from './IfElseNode.js'
 
 /**
  * 导出所有内置节点

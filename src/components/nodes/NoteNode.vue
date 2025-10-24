@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Position, Handle, useVueFlow } from '@vue-flow/core'
-import type { NodeProps, Connection } from '@vue-flow/core'
+import { useVueFlow } from '@vue-flow/core'
+import type { NodeProps } from '@vue-flow/core'
 import { ref, computed, watch } from 'vue'
 
 const props = defineProps<NodeProps>()
 const { removeNodes } = useVueFlow()
+const emit = defineEmits(['update:data', 'updateNodeInternals'])
 
 // 节点参数值
 const title = ref(props.data?.params?.title || '注释')
@@ -14,11 +15,12 @@ const color = ref(props.data?.params?.color || 'yellow')
 // 监听参数变化并更新到节点 data
 watch([title, content, color], () => {
     if (props.data) {
-        props.data.params = {
+        const newData = { ...props.data, params: {
             title: title.value,
             content: content.value,
             color: color.value
-        }
+        }}
+        emit('update:data', newData)
     }
 })
 
@@ -38,8 +40,6 @@ const colorTheme = computed(() => {
 const deleteNode = () => {
     removeNodes([props.id])
 }
-
-defineEmits(['updateNodeInternals'])
 </script>
 
 <template>
@@ -51,41 +51,36 @@ defineEmits(['updateNodeInternals'])
             color: colorTheme.text
         }">
         <div class="note-header">
-            <input
-                v-model="title"
+            <input v-model="title"
+                :style="{ color: colorTheme.text }"
                 type="text"
                 class="note-title"
                 placeholder="注释标题"
                 @mousedown.stop
-                @pointerdown.stop
-                :style="{ color: colorTheme.text }"
-            />
-            <button class="delete-btn" @click.stop="deleteNode" title="删除注释">
+                @pointerdown.stop>
+            <button title="删除注释" class="delete-btn" @click.stop="deleteNode">
                 <font-awesome-icon :icon="['fas', 'times']" />
             </button>
         </div>
 
-        <textarea
-            v-model="content"
+        <textarea v-model="content"
+            :style="{ color: colorTheme.text }"
             class="note-content"
             placeholder="在这里输入注释内容..."
             rows="4"
             @mousedown.stop
-            @pointerdown.stop
-            :style="{ color: colorTheme.text }"
-        />
+            @pointerdown.stop />
 
         <div class="note-footer">
-            <select
-                v-model="color"
-                class="color-select"
-                @mousedown.stop
-                @pointerdown.stop
+            <select v-model="color"
                 :style="{
                     backgroundColor: colorTheme.bg,
                     borderColor: colorTheme.border,
                     color: colorTheme.text
-                }">
+                }"
+                class="color-select"
+                @mousedown.stop
+                @pointerdown.stop>
                 <option value="yellow">🟨 黄色</option>
                 <option value="blue">🟦 蓝色</option>
                 <option value="green">🟩 绿色</option>

@@ -4,7 +4,9 @@
         <p>设置窗口</p>
 
         <div class="navigation">
-            <button @click="closeWindow">关闭窗口</button>
+            <button @click="closeWindow">
+                关闭窗口
+            </button>
         </div>
 
         <div class="settings-content">

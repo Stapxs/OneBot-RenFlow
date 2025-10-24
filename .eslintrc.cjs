@@ -6,9 +6,7 @@ module.exports = {
     extends: [
         'eslint:recommended',
         'plugin:vue/vue3-recommended',
-        '@electron-toolkit',
-        '@electron-toolkit/eslint-config-ts/eslint-recommended',
-        '@vue/eslint-config-typescript/recommended',
+        '@vue/eslint-config-typescript',
     ],
     rules: {
         // === 基础规则 ===
@@ -53,6 +51,7 @@ module.exports = {
         'vue/html-closing-bracket-newline': ['warn', {
             'multiline': 'never'
         }],
+        'vue/singleline-html-element-content-newline': 'off',
         // html 引号
         'vue/html-quotes': [ 'warn',
             'double',

@@ -1,8 +1,8 @@
-import { BaseNode } from './BaseNode'
-import { builtinNodes } from './builtin'
-import { CustomNode } from './custom/CustomNode'
-import type { NodeMetadata, NodeContext, NodeExecutionResult, NodeCategory, NodeCategoryInfo } from './types'
-import { Logger } from '../base'
+import { BaseNode } from './BaseNode.js'
+import { builtinNodes } from './builtin/index.js'
+import { CustomNode } from './custom/CustomNode.js'
+import type { NodeMetadata, NodeContext, NodeExecutionResult, NodeCategory, NodeCategoryInfo } from './types.js'
+import { Logger, LogLevel } from '../utils/logger.js'
 
 /**
  * 预定义的节点分类信息
@@ -26,8 +26,17 @@ export class NodeManager {
     private nodes: Map<string, BaseNode> = new Map()
     private logger: Logger
 
-    constructor() {
-        this.logger = new Logger()
+    /**
+     * 创建节点管理器
+     * @param logLevel 日志级别（可选），默认为 INFO
+     */
+    constructor(logLevel?: LogLevel) {
+        // 如果提供了日志级别，则设置全局日志级别
+        if (logLevel !== undefined) {
+            Logger.setLogLevel(logLevel)
+        }
+
+        this.logger = new Logger('NodeManager')
         this.loadBuiltinNodes()
     }
 
@@ -38,7 +47,6 @@ export class NodeManager {
         for (const node of builtinNodes) {
             this.nodes.set(node.metadata.id, node)
         }
-        this.logger.info(`已加载 ${builtinNodes.length} 个内置节点`)
     }
 
     /**
@@ -92,6 +100,8 @@ export class NodeManager {
             }
         }
 
+        /* eslint-disable no-console */
+
         // 构建完整的执行上下文
         const fullContext: NodeContext = {
             nodeId,
@@ -102,6 +112,8 @@ export class NodeManager {
                 warn: (...args) => console.warn(...args)
             }
         }
+
+        /* eslint-enable no-console */
 
         // 执行节点
         return await node.safeExecute(input, params, fullContext)
@@ -217,7 +229,25 @@ export class NodeManager {
 
         return grouped as Record<NodeCategory, NodeMetadata[]>
     }
+
+    /**
+     * 设置日志级别
+     * @param level 日志级别
+     */
+    setLogLevel(level: LogLevel) {
+        Logger.setLogLevel(level)
+        this.logger.info(`日志级别已设置为: ${LogLevel[level]}`)
+    }
 }
 
 // 导出单例
 export const nodeManager = new NodeManager()
+
+/**
+ * 创建一个新的节点管理器实例
+ * @param logLevel 日志级别（可选）
+ * @returns 新的节点管理器实例
+ */
+export function createNodeManager(logLevel?: LogLevel): NodeManager {
+    return new NodeManager(logLevel)
+}

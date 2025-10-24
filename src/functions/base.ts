@@ -85,7 +85,7 @@ export class Logger {
     private print(type: LogType, args: string, data: any, hidden: boolean) {
         const error = new Error()
         // 浏览器类型，用于判断是不是 webkit
-        let isWebkit = /webkit/i.test(navigator.userAgent)
+        const isWebkit = /webkit/i.test(navigator.userAgent)
         // 从调用栈中获取调用者信息
         let from = undefined as string | undefined
         const stack = error.stack

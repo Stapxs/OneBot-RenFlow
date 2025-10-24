@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { Position, Handle, useVueFlow } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
-import type { NodeParam } from '@app/functions/nodes/types'
+import type { NodeParam } from 'renflow.runner'
 import { ref, computed, watch } from 'vue'
 import NodeSettingsPanel from '../NodeSettingsPanel.vue'
 
 const props = defineProps<NodeProps>()
 const isDev = import.meta.env.DEV
 
-const { removeNodes } = useVueFlow()
+const { removeNodes, updateNode } = useVueFlow()
 
 // 节点参数值
 const paramValues = ref<Record<string, any>>({})
@@ -31,22 +31,21 @@ params.value.forEach(param => {
     }
 })
 
+// 更新节点数据的辅助函数
+const updateNodeData = (newParams: Record<string, any>) => {
+    updateNode(props.id, {
+        data: {
+            ...props.data,
+            params: { ...newParams }
+        }
+    })
+}
+
 // 监听标题变化并更新到节点 data
 watch(title, () => {
-    if (props.data) {
-        paramValues.value.title = title.value
-        props.data.params = { ...paramValues.value }
-    }
+    paramValues.value.title = title.value
+    updateNodeData(paramValues.value)
 })
-
-// 更新参数值
-const updateParam = (key: string, value: any) => {
-    paramValues.value[key] = value
-    // 更新节点 data 中的参数
-    if (props.data) {
-        props.data.params = { ...paramValues.value }
-    }
-}
 
 // 打开设置面板
 const openSettings = () => {
@@ -62,9 +61,7 @@ const closeSettings = () => {
 const updateSettings = (newValues: Record<string, any>) => {
     paramValues.value = { ...newValues }
     title.value = newValues.title || '条件分支'
-    if (props.data) {
-        props.data.params = { ...paramValues.value }
-    }
+    updateNodeData(paramValues.value)
 }
 
 // 删除节点
@@ -82,59 +79,52 @@ defineEmits(['updateNodeInternals'])
         <header>
             <div class="node-title">
                 <font-awesome-icon :icon="['fas', 'code-branch']" />
-                <input
-                    v-model="title"
+                <input v-model="title"
                     type="text"
                     class="node-label-input"
                     placeholder="条件分支"
                     @mousedown.stop
-                    @pointerdown.stop
-                />
+                    @pointerdown.stop>
             </div>
-            <button class="delete-btn" @click.stop="deleteNode" title="删除节点">
+            <button title="删除节点" class="delete-btn" @click.stop="deleteNode">
                 <font-awesome-icon :icon="['fas', 'times']" />
             </button>
         </header>
 
         <!-- 条件表达式按钮 -->
         <div class="condition-btn">
-            <button @click.stop="openSettings" title="编辑条件">
+            <button title="编辑条件" @click.stop="openSettings">
                 <span>编辑条件</span>
                 <font-awesome-icon :icon="['fas', 'pencil']" />
             </button>
         </div>
 
-        <div class="node-pos" v-if="isDev">
-            <span>({{ Math.round(props.position.x) }}, {{ Math.round(props.position.y) }})</span>
+        <div v-if="isDev" class="node-tip">
+            <span>{{ props.id }}</span>
         </div>
     </div>
 
     <!-- True 分支 -->
-    <Handle
-        id="true"
+    <Handle id="true"
         type="source"
         :position="Position.Right"
-        :style="{ top: 'calc(33% + 6px)' }"
-    />
-    <div class="handle-label handle-label-true">✓ True</div>
+        :style="{ top: 'calc(33% + 6px)' }" />
+    <div class="handle-label handle-label-true" />
 
     <!-- False 分支 -->
-    <Handle
-        id="false"
+    <Handle id="false"
         type="source"
         :position="Position.Right"
-        :style="{ top: 'calc(66% + 6px)' }"
-    />
-    <div class="handle-label handle-label-false">✗ False</div>
+        :style="{ top: 'calc(66% + 6px)' }" />
+    <div class="handle-label handle-label-false" />
 
     <!-- 设置面板弹窗 -->
-    <NodeSettingsPanel
-        v-if="showSettingsPanel"
-        :params="params"
+    <NodeSettingsPanel v-if="showSettingsPanel"
         v-model="paramValues"
-        @update:modelValue="updateSettings"
-        @close="closeSettings"
-    />
+        :params="params"
+        :node-id="props.id"
+        @update:model-value="updateSettings"
+        @close="closeSettings" />
 </template>
 
 <style scoped>
@@ -148,13 +138,12 @@ defineEmits(['updateNodeInternals'])
 .if-else-node header {
     background: var(--color-main);
     color: var(--color-font-r);
-    margin: -8px -13px;
+    margin: -13px -13px 10px -13px;
     border-radius: 7px;
     padding: 3px 5px 3px 10px;
     letter-spacing: 0;
     font-weight: bold;
     font-size: 0.8rem;
-    margin-bottom: 10px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -280,27 +269,28 @@ defineEmits(['updateNodeInternals'])
 
 /* Handle 标签 */
 .handle-label {
+    width: 6px;
+    height: 6px;
+    margin-top: 3px;
+    border-radius: 100%;
     position: absolute;
-    right: -50px;
+    right: -7px;
     font-size: 0.7rem;
-    color: var(--color-font-1);
     pointer-events: none;
-    white-space: nowrap;
-    font-weight: 500;
+    outline: 2px solid var(--color-bg);
 }
 
 .handle-label-true {
     top: 33%;
-    color: #10b981;
+    background: #09de3a;
 }
 
 .handle-label-false {
-    right: -53px;
     top: 66%;
-    color: #ef4444;
+    background-color: #f37a7a;
 }
 
-.node-pos {
+.node-tip {
     transform: translateY(50%);
     justify-content: center;
     position: absolute;
@@ -310,7 +300,7 @@ defineEmits(['updateNodeInternals'])
     bottom: 0;
     left: 0;
 }
-.node-pos span {
+.node-tip span {
     background: var(--color-main);
     color: var(--color-font-r);
     border-radius: 99px;

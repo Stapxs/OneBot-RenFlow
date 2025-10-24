@@ -1,5 +1,5 @@
-import { BaseNode } from '../BaseNode'
-import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types'
+import { BaseNode } from '../BaseNode.js'
+import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types.js'
 
 /**
  * 自定义 JS 代码节点
@@ -25,6 +25,14 @@ export class CustomJSNode extends BaseNode {
                 placeholder: '// 编写你的代码\n// 可用变量:\n// - input: 输入数据\n// - context: 执行上下文\n// 返回处理后的数据\n\nreturn input',
                 defaultValue: '// 编写你的代码\nreturn input',
                 required: true
+            }
+        ],
+        outputSchema: [
+            {
+                key: 'result',
+                label: '执行结果',
+                type: 'any',
+                description: '自定义代码的返回值（结构由代码决定）'
             }
         ]
     }

@@ -1,7 +1,7 @@
 /**
  * 节点参数类型
  */
-export type NodeParamType = 'input' | 'switch' | 'textarea' | 'number' | 'select' | 'settings'
+export type NodeParamType = 'input' | 'switch' | 'textarea' | 'number' | 'select' | 'settings' | 'condition'
 
 /**
  * 节点参数配置
@@ -21,6 +21,22 @@ export interface NodeParam {
     placeholder?: string
     /** 下拉选项（type 为 select 时使用） */
     options?: Array<{ label: string; value: any }>
+    /** 是否支持动态值（从上游节点获取） */
+    dynamic?: boolean
+}
+
+/**
+ * 输出字段定义
+ */
+export interface OutputField {
+    /** 字段 key */
+    key: string
+    /** 字段显示名称 */
+    label: string
+    /** 字段类型 */
+    type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'any'
+    /** 字段描述 */
+    description?: string
 }
 
 /**
@@ -52,6 +68,8 @@ export interface NodeMetadata {
     category: NodeCategory
     /** 节点参数配置 */
     params: NodeParam[]
+    /** 输出数据结构定义 */
+    outputSchema?: OutputField[]
     /** 是否为自定义节点 */
     isCustom?: boolean
     /** 节点图标（可选） */

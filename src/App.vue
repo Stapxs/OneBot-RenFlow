@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import Option from '@app/functions/option'
+import app from '@app/main'
 
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { backend } from '@app/functions/backend'
-import { Logger } from '@app/functions/base'
 import { setAutoDark } from '@app/functions/utils/app'
+import { setupToast } from '@app/functions/toast'
+import Toast from '@app/components/AppToast.vue'
 
 const dev = import.meta.env.DEV
 
-function handleAppbarMouseDown(e: MouseEvent) {
+// Toast 组件引用
+const toastRef = ref()
+
+function handleAppbarMouseDown(_: MouseEvent) {
     // 获取 URL 最后一级路径作为窗口标识
     const winId = location.pathname.split('/').pop()
     backend.call('win:StartDragging', winId)
@@ -20,15 +24,20 @@ function barMainClick() {
 
 function controllWin(action: 'minimize' | 'close') {
     // handle window control actions (placeholder)
+    action
 }
 
 onMounted(async () => {
-    const logger = new Logger()
     window.moYu = () => { return '\x75\x6e\x64\x65\x66\x69\x6e\x65\x64' }
 
     await backend.init()
     setAutoDark()
     // runtimeData.sysConfig = await Option.load()
+
+    // 设置 Toast
+    if (toastRef.value) {
+        setupToast(app, toastRef.value)
+    }
 });
 </script>
 
@@ -59,5 +68,8 @@ onMounted(async () => {
 
         <!-- 路由视图 -->
         <router-view />
+
+        <!-- 全局 Toast 通知 -->
+        <Toast ref="toastRef" />
     </div>
 </template>

@@ -1,5 +1,5 @@
-import { BaseNode } from '../BaseNode'
-import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types'
+import { BaseNode } from '../BaseNode.js'
+import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types.js'
 
 /**
  * 发送文本消息节点
@@ -19,7 +19,28 @@ export class SendTextNode extends BaseNode {
                 type: 'textarea',
                 placeholder: '输入要发送的文本消息',
                 defaultValue: '{data.text}',
-                required: true
+                required: true,
+                dynamic: true
+            }
+        ],
+        outputSchema: [
+            {
+                key: 'text',
+                label: '消息内容',
+                type: 'string',
+                description: '发送的文本消息内容'
+            },
+            {
+                key: 'sent',
+                label: '发送状态',
+                type: 'boolean',
+                description: '消息是否成功发送'
+            },
+            {
+                key: 'message',
+                label: '状态信息',
+                type: 'string',
+                description: '发送结果的状态信息'
             }
         ]
     }
