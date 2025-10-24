@@ -136,7 +136,17 @@ import { toast } from '@app/functions/toast'
 import { Logger, LogType } from '@app/functions/base'
 
 const route = useRoute()
-const { onNodeDrag, getIntersectingNodes, updateNode, addEdges, addNodes, project } = useVueFlow()
+const {
+    onNodeDrag,
+    getIntersectingNodes,
+    updateNode,
+    addEdges,
+    addNodes,
+    project,
+    setCenter,
+    getViewport,
+    fitView
+} = useVueFlow()
 const nodeManager = new NodeManager(LogLevel.DEBUG)
 const workflowConverter = new WorkflowConverter()
 const workflowEngine = new WorkflowEngine()
@@ -198,6 +208,11 @@ onMounted(async () => {
 
         // 更新节点 ID 计数器
         updateNodeIdCounter()
+
+        // 获取窗口宽度
+        const width = window.innerWidth
+        let { zoom } = getViewport()
+        setCenter(width / 3, 0, { zoom: zoom, duration: 200 })
     }
 })
 
@@ -395,6 +410,7 @@ async function executeWorkflow() {
         logger.add(LogType.INFO, '开始执行工作流:', executionData)
 
         // 执行工作流（带回调和延迟）
+        fitView({ duration: 300 })
         const result = await workflowEngine.execute(executionData, null, {
             minDelay: 500, // 前端模式最少 0.5s 延迟
             timeout: 60000, // 60 秒超时
@@ -402,6 +418,16 @@ async function executeWorkflow() {
                 onNodeStart: async (nodeId) => {
                     executingNodeId.value = nodeId
                     highlightNode(nodeId, true)
+                    // 视图跟随执行中的节点
+                    let { zoom } = getViewport()
+                    const node = (nodes.value as any[]).find((n: any) => n.id === nodeId) as any
+                    if (node && node.position) {
+                        setCenter(
+                            node.position.x + 240,
+                            node.position.y + 100,
+                            { zoom: zoom, duration: 200, interpolate: 'linear' }
+                        )
+                    }
                 },
                 onNodeComplete: async (nodeId) => {
                     highlightNode(nodeId, false)
@@ -712,8 +738,8 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
 }
 
 .toolbar-btn:hover {
-    background: rgba(var(--color-main-rgb), 0.2);
-    border-color: var(--color-main);
+    background: var(--color-card-1);
+    color: var(--color-font);
 }
 
 .toolbar-btn:active {
@@ -723,15 +749,6 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
 .toolbar-btn svg {
     width: 14px;
     height: 14px;
-}
-
-.save-btn {
-    border-color: var(--color-main);
-}
-
-.save-btn:hover {
-    background: var(--color-main);
-    color: var(--color-font-r);
 }
 
 .execute-btn {

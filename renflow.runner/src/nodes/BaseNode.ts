@@ -59,7 +59,7 @@ export abstract class BaseNode {
             // 执行节点
             return await this.execute(input, params, context)
         } catch (error) {
-            context.logger.error(`节点执行失败: ${this.metadata.name}`, error)
+            context.logger.error(this.metadata.name, error)
             return {
                 success: false,
                 error: error instanceof Error ? error.message : String(error)
