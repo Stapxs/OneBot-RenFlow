@@ -302,7 +302,7 @@ export class WorkflowEngine {
         // 根据节点类型处理分支
         if (node.type === 'if-else') {
             // if-else 节点：根据输出的布尔值选择分支
-            const condition = result.output._branch != 'false'
+            const condition = result.output._branch
             const branchKey = condition ? 'true' : 'false'
             const nextNodeId = node.branches[branchKey]
 

@@ -10,8 +10,8 @@ const isDev = import.meta.env.DEV
 
 const { removeNodes, updateNode } = useVueFlow()
 
-// 节点参数值
-const paramValues = ref<Record<string, any>>({})
+// 节点参数值：优先从节点 data.params 恢复已保存的值
+const paramValues = ref<Record<string, any>>({ ...(props.data?.params || {}) })
 
 // 节点标题
 const title = ref(props.data?.params?.title || '条件分支')
@@ -24,12 +24,23 @@ const params = computed<NodeParam[]>(() => {
     return props.data?.metadata?.params || []
 })
 
-// 初始化参数默认值
-params.value.forEach(param => {
-    if (param.defaultValue !== undefined && paramValues.value[param.key] === undefined) {
-        paramValues.value[param.key] = param.defaultValue
-    }
-})
+// 初始化参数默认值（在已有保存值的基础上填充缺省值）
+const initParamDefaults = () => {
+    params.value.forEach(param => {
+        if (param.defaultValue !== undefined && paramValues.value[param.key] === undefined) {
+            paramValues.value[param.key] = param.defaultValue
+        }
+    })
+}
+
+// 首次填充默认值
+initParamDefaults()
+
+// 如果外部节点 data.params 发生变化（例如从存储加载），同步到本地 paramValues
+watch(() => props.data?.params, (newVal) => {
+    paramValues.value = { ...(newVal || {}) }
+    initParamDefaults()
+}, { deep: true })
 
 // 更新节点数据的辅助函数
 const updateNodeData = (newParams: Record<string, any>) => {

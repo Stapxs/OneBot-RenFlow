@@ -110,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { LogLevel, NodeManager, WorkflowConverter, WorkflowEngine } from 'renflow.runner'
+import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter, WorkflowEngine } from 'renflow.runner'
 
 import type { NodeMetadata, VueFlowWorkflow } from 'renflow.runner'
 import type { Node, Edge } from '@vue-flow/core'
@@ -147,11 +147,28 @@ const {
     getViewport,
     fitView
 } = useVueFlow()
-const nodeManager = new NodeManager(LogLevel.DEBUG)
-const workflowConverter = new WorkflowConverter()
-const workflowEngine = new WorkflowEngine()
 
 const logger = new Logger()
+
+// 初始化 renflow.runner（集中初始化入口）
+init(LogLevel.DEBUG, {
+    debug: (_: string, ...args: any[]) => {
+        logger.debug(args[0])
+    },
+    info: (_: string, ...args: any[]) => {
+        logger.info(args[0])
+    },
+    warn: (_: string, ...args: any[]) => {
+        logger.add(LogType.ERR, '', args)
+    },
+    error: (_: string, ...args: any[]) => {
+        logger.add(LogType.ERR, '', args)
+    }
+})
+
+const nodeManager = runnerNodeManager
+const workflowConverter = new WorkflowConverter()
+const workflowEngine = new WorkflowEngine()
 
 // 执行状态
 const isExecuting = ref(false)

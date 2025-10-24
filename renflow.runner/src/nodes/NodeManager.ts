@@ -30,12 +30,7 @@ export class NodeManager {
      * 创建节点管理器
      * @param logLevel 日志级别（可选），默认为 INFO
      */
-    constructor(logLevel?: LogLevel) {
-        // 如果提供了日志级别，则设置全局日志级别
-        if (logLevel !== undefined) {
-            Logger.setLogLevel(logLevel)
-        }
-
+    constructor() {
         this.logger = new Logger('NodeManager')
         this.loadBuiltinNodes()
     }
@@ -249,5 +244,9 @@ export const nodeManager = new NodeManager()
  * @returns 新的节点管理器实例
  */
 export function createNodeManager(logLevel?: LogLevel): NodeManager {
-    return new NodeManager(logLevel)
+    const nm = new NodeManager()
+    if (logLevel !== undefined) {
+        nm.setLogLevel(logLevel)
+    }
+    return nm
 }

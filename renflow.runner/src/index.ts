@@ -3,7 +3,8 @@
  * 独立的工作流执行引擎，支持 OneBot 协议连接
  */
 
-import { Logger } from './utils/logger.js'
+import { Logger, LogLevel } from './utils/logger.js'
+import { nodeManager } from './nodes/index.js'
 
 // 检测是否在 Node.js 环境中运行
 const isNode = typeof process !== 'undefined' && process.versions && process.versions.node
@@ -49,3 +50,37 @@ if (isNode && import.meta.url === `file://${process.argv[1]}`) {
 export { Logger, LogLevel } from './utils/logger.js'
 export * from './nodes/index.js'
 export * from './workflow/index.js'
+
+/**
+ * 全局初始化入口。
+ *
+ * 在宿主应用启动时调用，用于设置全局日志级别和其他将来需要的全局初始化逻辑。
+ * 返回节点管理器单例以便应用直接使用。
+ */
+export function init(logLevel?: LogLevel, externalLogger?: {
+    debug: (moduleName: string, ...args: any[]) => void
+    info: (moduleName: string, ...args: any[]) => void
+    warn: (moduleName: string, ...args: any[]) => void
+    error: (moduleName: string, ...args: any[]) => void
+}) {
+    if (externalLogger !== undefined) {
+        try {
+            Logger.setExternalLogger(externalLogger)
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    if (logLevel !== undefined) {
+        // 设置 Logger 的全局日志级别
+        Logger.setLogLevel(logLevel)
+        // 同步设置 nodeManager 的日志级别
+        try {
+            nodeManager.setLogLevel(logLevel)
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    return nodeManager
+}

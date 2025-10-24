@@ -42,8 +42,8 @@ export class IfElseNode extends BaseNode {
             {
                 key: '_branch',
                 label: '执行分支',
-                type: 'string',
-                description: '实际执行的分支（"true" 或 "false"）'
+                type: 'boolean',
+                description: '实际执行的分支（true 或 false）'
             },
             {
                 key: '_conditionResult',
@@ -134,7 +134,7 @@ export class IfElseNode extends BaseNode {
                 success: true,
                 output: {
                     ...input,
-                    _branch: isTrue ? 'true' : 'false', // 标记走的分支
+                    _branch: isTrue, // 标记走的分支
                     _conditionResult: isTrue
                 }
             }

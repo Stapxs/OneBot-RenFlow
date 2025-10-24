@@ -42,7 +42,10 @@ export class Logger {
      * @param args 日志内容
      */
     add(type: LogType, args: string, data = '' as any, hidden = false) {
-        const logLevel = Option.get('log_level')
+        let logLevel = Option.get('log_level')
+        if(!logLevel) {
+            logLevel = 'info'
+        }
         // PS：WS, UI, ERR, INFO, DEBUG
         // all 将会输出以上全部类型，debug 将会输出 DEBUG、UI，info 将会输出 INFO，err 将会输出 ERR
         if(import.meta.env.DEV && type === LogType.SYSTEM) {
