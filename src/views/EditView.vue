@@ -6,45 +6,15 @@
                 <font-awesome-icon :icon="['fas', 'fa-floppy-disk']" />
                 保存
             </button>
-            <button class="toolbar-btn" @click="handleLoadClick">
-                <font-awesome-icon :icon="['fas', 'fa-folder-open']" />
-                加载
-            </button>
             <button class="toolbar-btn" @click="exportExecutionData">
                 <font-awesome-icon :icon="['fas', 'fa-file-export']" />
-                导出执行数据
+                导出独立配置
             </button>
             <button class="toolbar-btn execute-btn" :disabled="isExecuting" @click="executeWorkflow">
                 <font-awesome-icon :icon="['fas', isExecuting ? 'fa-spinner' : 'fa-play']" :spin="isExecuting" />
                 {{ isExecuting ? '执行中...' : '执行流程' }}
             </button>
         </div>
-
-        <!-- 加载确认对话框 -->
-        <Transition name="modal">
-            <div v-if="showLoadConfirmDialog" class="modal-overlay" @click="showLoadConfirmDialog = false">
-                <div class="modal-dialog" @click.stop>
-                    <div class="modal-header">
-                        <h3>确认加载</h3>
-                        <button class="modal-close" @click="showLoadConfirmDialog = false">
-                            <font-awesome-icon :icon="['fas', 'fa-xmark']" />
-                        </button>
-                    </div>
-                    <div class="modal-body">
-                        <p>加载工作流将会覆盖当前的编辑内容，是否继续？</p>
-                        <p class="modal-hint">建议先保存当前工作流再加载其他工作流</p>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="modal-btn modal-btn-cancel" @click="showLoadConfirmDialog = false">
-                            取消
-                        </button>
-                        <button class="modal-btn modal-btn-confirm" @click="confirmLoad">
-                            确认加载
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </Transition>
 
         <VueFlow v-model:nodes="nodes" v-model:edges="edges"
             @connect="onConnect"
@@ -101,8 +71,67 @@
                         </div>
                     </div>
                 </div>
-                <div icon="fa-info-circle">
-                    2
+                <div icon="fa-info-circle" class="flow-info">
+                    <div class="flow-info-card">
+                        <header>工作流信息</header>
+                        <div v-if="!editingFlow" class="flow-summary">
+                            <div class="flow-row">
+                                <label>名称</label>
+                                <div class="flow-value">{{ workflowInfo.name || '未命名工作流' }}</div>
+                            </div>
+                            <div class="flow-row">
+                                <label>触发器</label>
+                                <div class="flow-value">{{ workflowInfo.triggerLabel || workflowInfo.triggerTypeLabel || '-' }}</div>
+                            </div>
+                            <div class="flow-row">
+                                <label>描述</label>
+                                <div class="flow-value flow-desc">{{ workflowInfo.description || '-' }}</div>
+                            </div>
+                            <div class="flow-actions">
+                                <button class="edit-btn" @click="openFlowEditor">编辑</button>
+                            </div>
+                        </div>
+
+                        <div v-else class="flow-edit">
+                            <div class="flow-row">
+                                <label>名称</label>
+                                <input v-model="localFlow.name" type="text" placeholder="工作流名称">
+                            </div>
+                            <div class="flow-row">
+                                <label>触发器标签</label>
+                                <input v-model="localFlow.triggerLabel" type="text" placeholder="触发器标签">
+                            </div>
+                            <div class="flow-row">
+                                <label>描述</label>
+                                <textarea v-model="localFlow.description" rows="3" placeholder="工作流描述" />
+                            </div>
+                            <div class="flow-actions">
+                                <button class="cancel-btn" @click="cancelFlowEdit">取消</button>
+                                <button class="save-btn" @click="saveFlowEdit">保存</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-if="selectedNode" class="flow-info-card">
+                        <header>选中节点</header>
+                        <div class="selected-node-card">
+                            <div class="flow-row">
+                                <label>节点 ID</label>
+                                <div class="flow-value">{{ (selectedNode as any).id }}</div>
+                            </div>
+                            <div class="flow-row">
+                                <label>类型</label>
+                                <div class="flow-value">{{ (selectedNode as any).type }}</div>
+                            </div>
+                            <div class="flow-row">
+                                <label>标题</label>
+                                <div class="flow-value">{{ (selectedNode as any).data?.label || '-' }}</div>
+                            </div>
+
+                            <div class="flow-actions">
+                                <button class="edit-btn" @click="focusOnNode((selectedNode as any))">聚焦</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </BcTab>
         </div>
@@ -115,7 +144,7 @@ import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter, Wo
 import type { NodeMetadata, VueFlowWorkflow } from 'renflow.runner'
 import type { Node, Edge } from '@vue-flow/core'
 
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Controls } from '@vue-flow/controls'
@@ -185,11 +214,36 @@ const workflowInfo = ref({
     description: ''
 })
 
-// 显示加载对话框
-const showLoadDialog = ref(false)
+// 右侧 flow 信息的编辑状态与临时副本
+const editingFlow = ref(false)
+const localFlow = ref({ ...workflowInfo.value })
 
-// 显示加载确认对话框
-const showLoadConfirmDialog = ref(false)
+// 打开编辑器（复制当前值到本地副本）
+function openFlowEditor() {
+    localFlow.value = { ...workflowInfo.value }
+    editingFlow.value = true
+}
+
+function cancelFlowEdit() {
+    editingFlow.value = false
+}
+
+async function saveFlowEdit() {
+    // 把本地副本合并回 workflowInfo
+    workflowInfo.value = { ...workflowInfo.value, ...localFlow.value }
+
+    // 调用已有的保存逻辑以持久化（也会保存当前节点/边）
+    await saveWorkflow()
+
+    editingFlow.value = false
+}
+
+// 当外部 workflowInfo 变化时，如果不在编辑状态则同步本地副本
+watch(workflowInfo, (newVal) => {
+    if (!editingFlow.value) {
+        localFlow.value = { ...newVal }
+    }
+}, { deep: true })
 
 // 从 URL 参数获取工作流信息
 onMounted(async () => {
@@ -267,27 +321,6 @@ async function saveWorkflow() {
 }
 
 /**
- * 显示加载确认对话框
- */
-function handleLoadClick() {
-    if (nodes.value.length > 1 || edges.value.length > 0) {
-        // 如果有未保存的内容，显示确认对话框
-        showLoadConfirmDialog.value = true
-    } else {
-        // 直接显示加载对话框
-        showLoadDialog.value = true
-    }
-}
-
-/**
- * 确认加载
- */
-function confirmLoad() {
-    showLoadConfirmDialog.value = false
-    showLoadDialog.value = true
-}
-
-/**
  * 根据 ID 加载工作流
  */
 async function loadWorkflowById(id: string) {
@@ -328,7 +361,7 @@ async function loadWorkflowById(id: string) {
 }
 
 /**
- * 导出执行数据
+ * 导出独立配置
  */
 function exportExecutionData() {
     try {
@@ -377,8 +410,8 @@ function exportExecutionData() {
         toast.success('执行数据已导出')
         logger.add(LogType.INFO, '导出的执行数据:', executionData)
     } catch (error) {
-        toast.error('导出执行数据失败')
-        logger.error(error as unknown as Error, '导出执行数据失败')
+        toast.error('导出独立配置失败')
+        logger.error(error as unknown as Error, '导出独立配置失败')
     }
 }
 
@@ -450,9 +483,11 @@ async function executeWorkflow() {
                     highlightNode(nodeId, false)
                 },
                 onNodeError: async (nodeId, error) => {
-                    logger.add(LogType.ERR, `节点执行失败: ${nodeId}`, error)
-                    highlightNode(nodeId, false)
-                    toast.error(`节点执行失败: ${error.message}`)
+                    logger.add(LogType.ERR, `${nodeId}`, error)
+                    toast.error(`${error.message}`)
+                    setTimeout(() => {
+                        highlightNode(nodeId, false)
+                    }, 1200);
                 },
                 onWorkflowComplete: async (workflowResult) => {
                     logger.add(LogType.INFO, '工作流执行完成:', workflowResult)
@@ -461,8 +496,6 @@ async function executeWorkflow() {
                     if (workflowResult.success) {
                         toast.success('工作流执行成功')
                         logger.add(LogType.INFO, '执行日志:', workflowResult.logs)
-                    } else {
-                        toast.error(`工作流执行失败: ${workflowResult.error}`)
                     }
                 }
             }
@@ -527,6 +560,30 @@ const filteredNodes = computed(() => {
 // 节点和边数据
 const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
+
+// 当前选中节点（Vue Flow 在被选中时会在节点对象上标记 selected）
+const selectedNode = computed(() => {
+    return (nodes.value as any[]).find(n => (n as any).selected) as (Node & { data?: any }) | undefined
+})
+
+// 本地编辑选中节点的参数（用于右侧面板快速编辑）
+const editingNodeParams = ref<Record<string, any>>({})
+
+// 当选中节点变化，同步本地参数副本
+watch(selectedNode, (node) => {
+    if (node && node.data && node.data.params) {
+        editingNodeParams.value = { ...(node.data.params || {}) }
+    } else {
+        editingNodeParams.value = {}
+    }
+})
+
+// 聚焦到节点位置
+function focusOnNode(node: any) {
+    if (!node || !node.position) return
+    const { zoom } = getViewport()
+    setCenter(node.position.x + 240, node.position.y + 100, { zoom, duration: 300 })
+}
 
 // 节点 ID 计数器
 let nodeIdCounter = 0
@@ -715,7 +772,7 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
 
 <style scoped>
 .edit-view {
-    background-color: var(--color-bg);
+    background-color: rgba(var(--color-bg-rgb), 0.8);
     width: 100%;
     height: 100vh;
     position: relative;
@@ -1027,7 +1084,106 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
     font-size: 0.75rem;
     color: var(--color-font-2);
 }
+
+.flow-info-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--color-font);
+    background: rgba(var(--color-card-2-rgb), 0.8);
+    padding: 10px;
+    border-radius: 7px;
+    margin-top: 10px;
+}
+.flow-info-card header {
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-bottom: 1px solid var(--color-shader);
+    padding-bottom: 6px;
+}
+
+.flow-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.flow-row label {
+    font-size: 0.75rem;
+    color: var(--color-font-2);
+}
+.flow-value {
+    text-align: right;
+    flex: 1;
+    font-size: 0.9rem;
+    color: var(--color-font);
+    word-break: break-word;
+}
+.flow-value.param-preview {
+    background: rgba(var(--color-card-1-rgb), 0.7);
+    overflow-x: scroll;
+    overflow-y: hidden;
+    border-radius: 7px;
+    text-align: left;
+    padding: 10px;
+    min-width: calc(100% - 20px);
+}
+.flow-value.param-preview::-webkit-scrollbar {
+    height: 6px;
+}
+.flow-value.param-preview pre {
+    margin: 0;
+}
+.flow-desc {
+    max-height: 48px;
+    overflow: hidden;
+}
+.flow-actions {
+    border-radius: 7px;
+    padding: 5px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 6px -5px 0 -5px;
+}
+.flow-actions .edit-btn,
+.flow-actions .save-btn,
+.flow-actions .cancel-btn {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+.flow-actions .edit-btn { background: var(--color-card-1); }
+.flow-actions .save-btn { background: var(--color-main); color: var(--color-font-r); }
+.flow-actions .cancel-btn { background: var(--color-card-1); }
 </style>
+
+.selected-node-card {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(var(--color-font-rgb), 0.06);
+}
+.param-preview pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 120px;
+    overflow: auto;
+    background: rgba(var(--color-card-2-rgb), 0.05);
+    padding: 8px;
+    border-radius: 6px;
+}
+.param-edit .param-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.param-edit input {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(var(--color-font-rgb), 0.06);
+}
 <style>
 .node-list .tab-bar {
     --bc-tab-margin: 10px;

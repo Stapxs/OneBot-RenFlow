@@ -5,6 +5,9 @@
 
 import { Logger, LogLevel } from './utils/logger.js'
 import { nodeManager } from './nodes/index.js'
+import path from 'path'
+import fs from 'fs/promises'
+import { WorkflowConverter, WorkflowEngine } from './workflow/index.js'
 
 // 检测是否在 Node.js 环境中运行
 const isNode = typeof process !== 'undefined' && process.versions && process.versions.node
@@ -20,7 +23,50 @@ async function main() {
 
     // TODO: 初始化 OneBot 连接
     // TODO: 加载工作流配置
-    // TODO: 启动工作流引擎
+    // 如果命令行传入了一个 JSON 文件，则直接加载并运行该工作流
+    if (isNode) {
+        const arg = process.argv[2]
+        if (arg) {
+            try {
+                const resolved = path.isAbsolute(arg) ? arg : path.resolve(process.cwd(), arg)
+                const stat = await fs.stat(resolved)
+                if (stat.isFile() && resolved.endsWith('.json')) {
+                    logger.info(`检测到工作流 JSON 文件，正在加载: ${resolved}`)
+                    const content = await fs.readFile(resolved, { encoding: 'utf-8' })
+                    const json = JSON.parse(content)
+
+                    // 判断是否为 VueFlowWorkflow（有 nodes 数组和 edges）或已是执行数据
+                    let workflowExecution: any = null
+                    if (Array.isArray(json.nodes) && Array.isArray(json.edges)) {
+                        const converter = new WorkflowConverter()
+                        workflowExecution = converter.convert(json)
+                    } else if (json && typeof json.nodes === 'object' && json.entryNode !== undefined) {
+                        // 认为已经是 WorkflowExecution
+                        workflowExecution = json
+                    } else {
+                        throw new Error('无法识别的工作流 JSON 格式')
+                    }
+
+                    // 简单验证并运行工作流
+                    const engine = new WorkflowEngine()
+
+                    const result = await engine.execute(workflowExecution, null)
+
+                    if (!result.success) {
+                        logger.error('工作流执行失败:', result.error)
+                        process.exit(2)
+                    }
+
+                    logger.info('工作流执行成功')
+                    // 运行完后直接退出（CLI 模式）
+                    process.exit(0)
+                }
+            } catch (e) {
+                logger.error('加载或执行工作流时出错:', e)
+                process.exit(1)
+            }
+        }
+    }
 
     logger.info('Ren Flow Runner 已启动')
 }
