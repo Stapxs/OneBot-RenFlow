@@ -1,6 +1,4 @@
 export * from './ConnectorManager'
-export * from './queue'
-export * from './cache/Cache'
-export * from './cache/types'
 export * from './eventbus'
 export * from './adapter'
+export * from './events'

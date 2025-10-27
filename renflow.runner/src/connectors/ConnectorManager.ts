@@ -1,7 +1,5 @@
-import type { QueueAdapter } from './queue/QueueAdapter'
-import { InMemoryQueueAdapter } from './queue/InMemoryQueueAdapter'
-import { RabbitMQQueueAdapter } from './queue/RabbitMQQueueAdapter'
 import { eventBus } from './eventbus'
+import { AdapterEvents } from './events'
 
 
 // 简易的连接器管理器
@@ -14,8 +12,19 @@ export class ConnectorManager {
         this.adapters.set(id, adapter)
         // 发布已注册事件，source 为 adapter id，便于订阅者按 source 过滤
         try {
-            eventBus.publish({ id, source: id, type: 'adapter.registered', payload: { id }, timestamp: Date.now() })
+            eventBus.publish({ id, source: id, type: AdapterEvents.REGISTERED, payload: { id }, timestamp: Date.now() })
         } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * 通过 adapterId 调用适配器导出的 @api 方法
+     * 如果适配器未注册或不支持 callApi，将抛出错误
+     */
+    async callAdapterApi(adapterId: string, apiName: string, ...args: any[]): Promise<any> {
+        const adapter = this.adapters.get(adapterId)
+        if (!adapter) throw new Error(`adapter not found: ${adapterId}`)
+        if (typeof adapter.callApi !== 'function') throw new Error(`adapter does not support callApi: ${adapterId}`)
+        return await adapter.callApi(apiName, ...args)
     }
 
     // 注销适配器
@@ -23,7 +32,7 @@ export class ConnectorManager {
         const a = this.adapters.get(id)
         this.adapters.delete(id)
         try {
-            eventBus.publish({ id, source: id, type: 'adapter.unregistered', payload: { id }, timestamp: Date.now() })
+            eventBus.publish({ id, source: id, type: AdapterEvents.UNREGISTERED, payload: { id }, timestamp: Date.now() })
         } catch (e) { /* ignore */ }
         return a
     }
@@ -33,30 +42,10 @@ export class ConnectorManager {
         return this.adapters.get(id) as T | undefined
     }
 
-    // 创建队列适配器的简单工厂，支持 memory 或 rabbit
-    // adapterId: 可选的适配器标识，便于在事件总线中区分来源
-    createQueueAdapter(type: 'memory' | 'rabbit', opts: any, adapterId?: string): QueueAdapter {
-        if (type === 'memory') {
-            const concurrency = opts?.concurrency || 1
-            const id = adapterId || `memory-${Math.random().toString(36).slice(2, 8)}`
-            const adapter = new InMemoryQueueAdapter(concurrency, id)
-            // 注册到管理器，便于后续获取
-            this.registerAdapter(id, adapter)
-            return adapter
-        }
-
-        if (type === 'rabbit') {
-            const id = adapterId || `rabbit-${Math.random().toString(36).slice(2, 8)}`
-            const adapter = new RabbitMQQueueAdapter(opts, id)
-            this.registerAdapter(id, adapter)
-            return adapter
-        }
-
-        throw new Error(`Unknown queue adapter type: ${type}`)
-    }
+    // Note: queue adapters removed — message flow is handled via adapters -> EventBus
 
     // 创建 BotAdapter 的简单工厂（支持 'mock' 作为测试实现）
-    async createBotAdapter(type: 'mock' | 'onebot', opts: any, adapterId?: string) {
+    async createBotAdapter(type: string, opts: any, adapterId?: string) {
         const id = adapterId || `bot-${Math.random().toString(36).slice(2, 8)}`
         if (type === 'mock') {
             // 使用动态 import，兼容 ESM
@@ -69,7 +58,16 @@ export class ConnectorManager {
             return adapter
         }
 
-        // onebot 支持尚未实现，返回一个占位错误
+        if (type === 'napcat') {
+            // 支持 OneBot 实现（Napcat）
+            const mod = await import('./adapter/onebot/NapcatAdapter')
+            const NapcatAdapter = (mod && (mod.NapcatAdapter || mod.default))
+            if (!NapcatAdapter) throw new Error('NapcatAdapter not found')
+            const adapter = new NapcatAdapter(id, opts)
+            this.registerAdapter(id, adapter)
+            return adapter
+        }
+
         throw new Error(`Bot adapter type not implemented: ${type}`)
     }
 }

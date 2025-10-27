@@ -1,7 +1,8 @@
 import { EventEmitter } from 'events'
 import type { AdapterId, AdapterOptions, AdapterMessage, AdapterEvent, AdapterEventHandler } from './types'
 import { eventBus } from '../eventbus'
-import { getEventMeta } from './decorators'
+import { AdapterEvents, MessageData } from '../events'
+import { getEventMeta, getApiMeta } from './decorators'
 
 export interface BotAdapter {
     id: AdapterId
@@ -11,6 +12,10 @@ export interface BotAdapter {
     send(message: AdapterMessage): Promise<void>
     on(event: AdapterEvent, handler: AdapterEventHandler): void
     off(event: AdapterEvent, handler: AdapterEventHandler): void
+    callApi(name: string, ...args: any[]): Promise<any>
+
+    // 新增：适配器必须实现一些通用的 API
+    message(message: AdapterMessage): Promise<void>
 }
 
 /**
@@ -32,6 +37,8 @@ export abstract class BaseBotAdapter implements BotAdapter {
     abstract connect(): Promise<void>
     abstract disconnect(): Promise<void>
     abstract send(message: AdapterMessage): Promise<void>
+    // 新增抽象方法，强制子类实现 message API
+    abstract message(message: AdapterMessage): Promise<any>
 
     on(event: AdapterEvent, handler: AdapterEventHandler) {
         this.ee.on(event, handler)
@@ -44,15 +51,39 @@ export abstract class BaseBotAdapter implements BotAdapter {
     protected emitEvent(event: AdapterEvent, payload?: any) {
         try { this.ee.emit(event, payload) } catch (e) { /* swallow */ }
         // 也将关键事件发布到全局 EventBus，便于观测与外部集成
+        // Normalize payload for known events and publish to global event bus
+        let type = `adapter.${event}`
+        let pubPayload: any = payload ?? {}
+
+        // known adapter-level event name mapping
+        const eventMap: Record<string, string> = {
+            message: AdapterEvents.MESSAGE,
+            connected: AdapterEvents.CONNECTED,
+            disconnected: AdapterEvents.DISCONNECTED,
+            error: AdapterEvents.ERROR,
+        }
+
+        if (event in eventMap) {
+            type = eventMap[event]
+        }
+
+        // If this is a message event, try to normalize to MessageData shape
+        if (event === 'message') {
+            const now = Date.now()
+            const raw = payload ?? {}
+            const message: MessageData = {
+                id: raw.id ?? `${this.id}:${now}`,
+                from: raw.from ?? raw.sender ?? raw.user ?? null,
+                text: raw.text ?? raw.content ?? raw.message ?? '',
+                timestamp: raw.timestamp ?? now,
+                raw,
+            }
+            pubPayload = message
+        }
+
         try {
-            eventBus.publish({
-                id: payload?.id || undefined,
-                source: this.id,
-                type: `adapter.${event}`,
-                payload,
-                timestamp: Date.now(),
-            })
-        } catch (e) { /* ignore */ }
+            eventBus.publish({ id: `${this.id}:${Date.now()}`, source: this.id, type, payload: pubPayload, timestamp: Date.now() })
+        } catch (e) { void e }
     }
 
     // 扫描原型上的 @event 装饰器并注册处理器
@@ -88,6 +119,21 @@ export abstract class BaseBotAdapter implements BotAdapter {
             for (const u of arr) { try { u() } catch (e) { /* ignore */ } }
             (this as any).__decoratorUnsubscribes = []
         } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * 调用由 @api 装饰的方法（按名称查找）
+     * 如果找到，将以 this 为上下文执行并返回结果（支持同步/异步方法）
+     */
+    public async callApi(name: string, ...args: any[]): Promise<any> {
+        const meta = getApiMeta(Object.getPrototypeOf(this))
+        if (!meta || meta.length === 0) throw new Error('no api methods')
+        const rec = meta.find(m => m.name === name)
+        if (!rec) throw new Error(`api not found: ${name}`)
+        const fn = (this as any)[rec.method]
+        if (typeof fn !== 'function') throw new Error(`api method is not a function: ${rec.method}`)
+        // support promise or value
+        return await Promise.resolve(fn.apply(this, args))
     }
 }
 
