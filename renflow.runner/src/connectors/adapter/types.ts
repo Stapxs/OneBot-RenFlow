@@ -2,19 +2,17 @@
 export type AdapterId = string
 
 export interface AdapterOptions {
-    // 任意适配器特定选项
     [key: string]: any
 }
 
-export interface AdapterMessage {
-    id?: string
-    from?: string
-    to?: string
-    text?: string
-    raw?: any
-    timestamp?: number
-}
+export type AdapterEventType =
+    'connected' | 'disconnected' | 'error'
+    | 'message' | 'message_mine'
+    | string
 
-export type AdapterEvent = 'connected' | 'disconnected' | 'message' | 'error'
+export interface AdapterMessage {
+    data: any
+    timestamp: number
+}
 
 export type AdapterEventHandler = (payload?: any) => void

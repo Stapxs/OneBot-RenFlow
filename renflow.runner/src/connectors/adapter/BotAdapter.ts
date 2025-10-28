@@ -1,7 +1,5 @@
 import { EventEmitter } from 'events'
-import type { AdapterId, AdapterOptions, AdapterMessage, AdapterEvent, AdapterEventHandler } from './types'
-import { eventBus } from '../eventbus'
-import { AdapterEvents, MessageData } from '../events'
+import type { AdapterId, AdapterOptions, AdapterMessage, AdapterEventHandler, AdapterEventType } from './types'
 import { getEventMeta, getApiMeta } from './decorators'
 
 export interface BotAdapter {
@@ -10,12 +8,12 @@ export interface BotAdapter {
     connect(): Promise<void>
     disconnect(): Promise<void>
     send(message: AdapterMessage): Promise<void>
-    on(event: AdapterEvent, handler: AdapterEventHandler): void
-    off(event: AdapterEvent, handler: AdapterEventHandler): void
+    on(event: string, handler: AdapterEventHandler): void
+    off(event: string, handler: AdapterEventHandler): void
     callApi(name: string, ...args: any[]): Promise<any>
 
-    // 新增：适配器必须实现一些通用的 API
-    message(message: AdapterMessage): Promise<void>
+    // 适配器必须实现一些通用的 API
+    get(message: AdapterMessage): Promise<void>
 }
 
 /**
@@ -37,53 +35,31 @@ export abstract class BaseBotAdapter implements BotAdapter {
     abstract connect(): Promise<void>
     abstract disconnect(): Promise<void>
     abstract send(message: AdapterMessage): Promise<void>
-    // 新增抽象方法，强制子类实现 message API
-    abstract message(message: AdapterMessage): Promise<any>
+    // 抽象方法，强制子类实现
+    abstract get(message: AdapterMessage): Promise<any>
 
-    on(event: AdapterEvent, handler: AdapterEventHandler) {
-        this.ee.on(event, handler)
-    }
-
-    off(event: AdapterEvent, handler: AdapterEventHandler) {
-        this.ee.off(event, handler)
-    }
-
-    protected emitEvent(event: AdapterEvent, payload?: any) {
-        try { this.ee.emit(event, payload) } catch (e) { /* swallow */ }
-        // 也将关键事件发布到全局 EventBus，便于观测与外部集成
-        // Normalize payload for known events and publish to global event bus
-        let type = `adapter.${event}`
-        let pubPayload: any = payload ?? {}
-
-        // known adapter-level event name mapping
-        const eventMap: Record<string, string> = {
-            message: AdapterEvents.MESSAGE,
-            connected: AdapterEvents.CONNECTED,
-            disconnected: AdapterEvents.DISCONNECTED,
-            error: AdapterEvents.ERROR,
-        }
-
-        if (event in eventMap) {
-            type = eventMap[event]
-        }
-
-        // If this is a message event, try to normalize to MessageData shape
-        if (event === 'message') {
-            const now = Date.now()
-            const raw = payload ?? {}
-            const message: MessageData = {
-                id: raw.id ?? `${this.id}:${now}`,
-                from: raw.from ?? raw.sender ?? raw.user ?? null,
-                text: raw.text ?? raw.content ?? raw.message ?? '',
-                timestamp: raw.timestamp ?? now,
-                raw,
+    on(event: string | string[], handler: AdapterEventHandler) {
+        if (Array.isArray(event)) {
+            for (const ev of event) {
+                this.ee.on(ev, handler)
             }
-            pubPayload = message
+        } else {
+            this.ee.on(event, handler)
         }
+    }
 
-        try {
-            eventBus.publish({ id: `${this.id}:${Date.now()}`, source: this.id, type, payload: pubPayload, timestamp: Date.now() })
-        } catch (e) { void e }
+    off(event: string | string[], handler: AdapterEventHandler) {
+        if (Array.isArray(event)) {
+            for (const ev of event) {
+                this.ee.off(ev, handler)
+            }
+        } else {
+            this.ee.off(event, handler)
+        }
+    }
+
+    protected emitEvent(event: AdapterEventType, payload?: any) {
+        try { this.ee.emit(event, payload) } catch (e) { /* swallow */ }
     }
 
     // 扫描原型上的 @event 装饰器并注册处理器
@@ -97,15 +73,10 @@ export abstract class BaseBotAdapter implements BotAdapter {
                 const fn = (this as any)[m.method]
                 if (typeof fn !== 'function') continue
                 const bound = fn.bind(this)
-                // 如果是全局事件（包含点号），通过 eventBus.subscribe 按 type 订阅
-                if (m.event && m.event.includes('.')) {
-                    const unsub = (eventBus as any).subscribe ? eventBus.subscribe({ type: m.event }, bound) : () => { }
-                    ;(this as any).__decoratorUnsubscribes.push(unsub)
-                } else {
-                    // 本地适配器事件
-                    this.ee.on(m.event, bound)
-                    ;(this as any).__decoratorUnsubscribes.push(() => this.ee.off(m.event, bound))
-                }
+
+                // 本地适配器事件
+                this.ee.on(m.event, bound)
+                ;(this as any).__decoratorUnsubscribes.push(() => this.ee.off(m.event, bound))
             }
         } catch (e) {
             // 忽略装饰器注册错误

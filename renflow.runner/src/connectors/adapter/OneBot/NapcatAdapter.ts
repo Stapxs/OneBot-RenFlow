@@ -1,6 +1,8 @@
 import { BaseBotAdapter } from '../BotAdapter'
+import event from '../decorators'
 import type { AdapterOptions, AdapterMessage } from '../types'
-import { api } from '../decorators'
+import { Mapping, mapToInterface } from '../util'
+import { RenMessage } from '../../../types'
 
 /**
  * NapcatAdapter: OneBot 协议适配器（Napcat 风格的 websocket 接入）
@@ -10,8 +12,6 @@ export class NapcatAdapter extends BaseBotAdapter {
     private ws: any | null = null
     private reconnectAttempts = 0
     private reconnectTimer: any = null
-    private heartbeatTimer: any = null
-    private lastPongAt = 0
 
     constructor(id: string, opts?: AdapterOptions) {
         super(id, opts)
@@ -30,8 +30,6 @@ export class NapcatAdapter extends BaseBotAdapter {
         const reconnect = this.options?.reconnect ?? true
         const maxRetries = typeof this.options?.maxRetries === 'number' ? this.options.maxRetries : 5
         const retryInterval = typeof this.options?.retryInterval === 'number' ? this.options.retryInterval : 2000
-        const heartbeatInterval = typeof this.options?.heartbeatInterval === 'number' ? this.options.heartbeatInterval : 15000
-        const heartbeatPayload = this.options?.heartbeatPayload ?? { type: 'ping' }
 
         // 动态加载 ws（在 Node 环境中可能没有全局 WebSocket）
         let WS: any = (globalThis as any).WebSocket
@@ -54,16 +52,14 @@ export class NapcatAdapter extends BaseBotAdapter {
                         this.reconnectAttempts = 0
                         this.connected = true
                         this.emitEvent('connected', { id: this.id, source: this.id, timestamp: Date.now() })
-                        this.startHeartbeat(heartbeatInterval, heartbeatPayload)
                         cleanupListeners()
                         resolve()
                     }
 
-                    const onMessage = (data: any) => { this.handleRawMessage(data) }
+                    const onMessage = (data: any) =>  this.emitEvent('get', { data: data, timestamp: Date.now() } as AdapterMessage)
 
                     const onClose = () => {
                         this.connected = false
-                        this.stopHeartbeat()
                         this.emitEvent('disconnected', { id: this.id, source: this.id, timestamp: Date.now() })
                         cleanupListeners()
                         if (reconnect) scheduleReconnect()
@@ -126,10 +122,14 @@ export class NapcatAdapter extends BaseBotAdapter {
     if (!this.ws) return
     try { if (typeof this.ws.close === 'function') this.ws.close() } catch (e) { void e }
         this.clearReconnect()
-        this.stopHeartbeat()
         this.ws = null
         this.connected = false
         this.emitEvent('disconnected', { id: this.id, source: this.id, timestamp: Date.now() })
+    }
+
+    private clearReconnect() {
+    try { if (this.reconnectTimer) {clearTimeout(this.reconnectTimer); this.reconnectTimer = null } } catch (e) { void e }
+        this.reconnectAttempts = 0
     }
 
     async send(message: AdapterMessage): Promise<void> {
@@ -144,64 +144,78 @@ export class NapcatAdapter extends BaseBotAdapter {
         }
     }
 
-    // 实现 BaseBotAdapter 要求的 message API，并通过 @api 暴露
-    @api('message')
-    async message(msg: AdapterMessage) {
-        await this.send(msg)
+    // 工具方法 ==================================================
+
+    messageMapping = {
+        messageId: 'message_id',
+        messageSeqId: { path: 'real_seq',
+            transform: (val: any) => Number(val) },
+        messageType: 'message_type',
+        selfId: 'self_id',
+        groupId: 'group_id',
+        userId: 'user_id',
+        targetId: 'target_id',
+        'sender.userId': 'sender.user_id',
+        'sender.nickName': 'sender.nickname',
+        'sender.cardName': 'sender.card',
+        'sender.role': 'sender.role',
+        rawMessage: 'raw_message',
+        time: { path: 'time',
+            transform: (val: any) => new Date(val * 1000) },
+        message: {
+            path: 'message',
+            transform: (val: {[key: string]: any}[]) => {
+                const finalItems: any[] = []
+                for (const item of val) {
+                    const result: {[key: string]: any} = {
+                        type: item.type
+                    }
+                    switch(item.type) {
+                        case 'text': result.text = item.data.text; break;
+                        case 'image': {
+                            result.url = item.data.url
+                            result.summary = item.data.summary
+                            result.subType = item.data.sub_type
+                            if(item.data.emoji_id) {
+                                result.emojiId = item.data.emoji_id
+                                result.packageId = item.data.package_id
+                            }
+                            break;
+                        }
+                        case 'reply': result.id = item.data.id; break;
+                        default: continue;
+                    }
+                    finalItems.push(result)
+                }
+                return finalItems
+            }
+        }
+    }  as Mapping
+
+    private formatMessage(data: any[]) {
+        return data.map(item => {
+            return mapToInterface<RenMessage>(item, this.messageMapping)
+        })
+    }
+
+    // 事件实现 ==================================================
+
+    @event('get')
+    async get(msg: AdapterMessage) {
+        let data = JSON.parse(msg.data)
+        // 对原始消息进行拆分二次投递事件
+        const msgType = data.post_type === 'notice' ? data.sub_type ?? data.notice_type : data.post_type
+        if(msgType == 'message') {
+            data = this.formatMessage([data])
+            this.emitEvent('message', data[0])
+        } else if(msgType == 'message_sent') {
+            data = this.formatMessage([data])
+            this.emitEvent('message_mine', data[0])
+        }
         return { ok: true }
     }
 
-    private startHeartbeat(interval: number, payload: any) {
-        try {
-            this.stopHeartbeat()
-            this.heartbeatTimer = setInterval(() => {
-                try {
-                    if (!this.ws || !this.connected) return
-                    const p = typeof payload === 'string' ? payload : JSON.stringify(payload)
-                    if (typeof this.ws.send === 'function') this.ws.send(p)
-                } catch (e) { /* ignore */ }
-            }, interval)
-        } catch (e) { /* ignore */ }
-    }
-
-    private stopHeartbeat() {
-    try { if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null } } catch (e) { void e }
-    }
-
-    private clearReconnect() {
-    try { if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null } } catch (e) { void e }
-        this.reconnectAttempts = 0
-    }
-
-    private handleRawMessage(raw: any) {
-        let data: any = raw
-        try {
-            if (typeof raw === 'string') data = JSON.parse(raw)
-            else if (raw && typeof raw === 'object' && raw.toString && raw instanceof Uint8Array) {
-                const s = Buffer.from(raw).toString('utf8')
-                try { data = JSON.parse(s) } catch { data = s }
-            }
-        } catch (e) {
-            data = raw
-        }
-
-        // detect pong/heartbeat responses
-        if (data && data.type === 'pong') {
-            this.lastPongAt = Date.now()
-            return
-        }
-
-        const msg: AdapterMessage = {
-            id: data?.message_id ?? data?.id ?? undefined,
-            from: data?.from ?? data?.user ?? 'remote',
-            to: data?.to ?? undefined,
-            text: data?.text ?? data?.content ?? (typeof data === 'string' ? data : undefined),
-            raw: data,
-            timestamp: Date.now(),
-        }
-
-        this.emitEvent('message', msg)
-    }
+    // 接口实现 ==================================================
 }
 
 export default NapcatAdapter

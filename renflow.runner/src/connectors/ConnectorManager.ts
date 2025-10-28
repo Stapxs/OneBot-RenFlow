@@ -1,7 +1,3 @@
-import { eventBus } from './eventbus'
-import { AdapterEvents } from './events'
-
-
 // 简易的连接器管理器
 // 负责注册/获取适配器，并提供队列适配器的工厂方法
 export class ConnectorManager {
@@ -10,10 +6,6 @@ export class ConnectorManager {
     // 注册一个命名适配器（任意类型：queue / bot adapter 等）
     registerAdapter(id: string, adapter: any) {
         this.adapters.set(id, adapter)
-        // 发布已注册事件，source 为 adapter id，便于订阅者按 source 过滤
-        try {
-            eventBus.publish({ id, source: id, type: AdapterEvents.REGISTERED, payload: { id }, timestamp: Date.now() })
-        } catch (e) { /* ignore */ }
     }
 
     /**
@@ -29,12 +21,7 @@ export class ConnectorManager {
 
     // 注销适配器
     unregisterAdapter(id: string) {
-        const a = this.adapters.get(id)
         this.adapters.delete(id)
-        try {
-            eventBus.publish({ id, source: id, type: AdapterEvents.UNREGISTERED, payload: { id }, timestamp: Date.now() })
-        } catch (e) { /* ignore */ }
-        return a
     }
 
     // 获取已注册的适配器
@@ -42,21 +29,9 @@ export class ConnectorManager {
         return this.adapters.get(id) as T | undefined
     }
 
-    // Note: queue adapters removed — message flow is handled via adapters -> EventBus
-
     // 创建 BotAdapter 的简单工厂（支持 'mock' 作为测试实现）
     async createBotAdapter(type: string, opts: any, adapterId?: string) {
         const id = adapterId || `bot-${Math.random().toString(36).slice(2, 8)}`
-        if (type === 'mock') {
-            // 使用动态 import，兼容 ESM
-            const mod = await import('./adapter/MockBotAdapter')
-            // 支持 default 或命名导出
-            const MockBotAdapter = (mod && (mod.MockBotAdapter || mod.default))
-            if (!MockBotAdapter) throw new Error('MockBotAdapter not found')
-            const adapter = new MockBotAdapter(id, opts)
-            this.registerAdapter(id, adapter)
-            return adapter
-        }
 
         if (type === 'napcat') {
             // 支持 OneBot 实现（Napcat）
