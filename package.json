@@ -14,7 +14,8 @@
     "build:runner": "yarn workspace renflow.runner build"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.9.0"
+    "@tauri-apps/api": "^2.9.0",
+    "events": "^3.3.0"
   },
   "devDependencies": {
     "@fortawesome/fontawesome-svg-core": "^6.7.0",

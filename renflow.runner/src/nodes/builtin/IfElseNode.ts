@@ -73,12 +73,8 @@ export class IfElseNode extends BaseNode {
             } else {
                 // 标准参数比较
                 // 解析参数路径 (例如: "input.value" 或 "input")
-                const paramPath = condition.parameter.split('.')
-                paramValue = input
-                for (const key of paramPath) {
-                    if (key === 'input') continue // 跳过 "input" 前缀
-                    paramValue = paramValue?.[key]
-                }
+                const paramPath = condition.parameter.split('.')[1]
+                paramValue = input?.[paramPath]
 
                 // 根据模式判断
                 switch (condition.mode) {
@@ -128,7 +124,7 @@ export class IfElseNode extends BaseNode {
 
             const isTrue = Boolean(result)
 
-            context.logger.log(`[If-Else] 条件判断: ${isTrue ? 'true (走 true 分支)' : 'false (走 false 分支)'}`)
+            context.logger.log(`[If-Else] 条件判断: ${isTrue}（${paramValue} / ${condition.value}）`)
 
             return {
                 success: true,

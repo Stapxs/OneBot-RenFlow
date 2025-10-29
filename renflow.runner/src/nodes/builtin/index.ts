@@ -13,7 +13,6 @@ export const builtinNodes = [
     new SendTextNode(),
     new CustomJSNode(),
     new IfElseNode(),
-    // 未来添加更多内置节点...
 ]
 
 export {

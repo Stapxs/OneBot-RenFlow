@@ -16,3 +16,13 @@ export interface AdapterMessage {
 }
 
 export type AdapterEventHandler = (payload?: any) => void
+
+// ===============================
+
+export interface NapcatAdapterOptions {
+    url: string            // WebSocket 连接地址
+    token: string          // 访问令牌
+    reconnect?: boolean     // 是否启用自动重连，默认 true
+    maxRetries?: number     // 最大重连次数，默认 5 次
+    retryInterval?: number  // 重连间隔时间（毫秒），默认 2000 毫秒
+}

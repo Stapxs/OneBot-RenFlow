@@ -150,13 +150,13 @@ export const backend = reactive({
      * @param name 事件名称
      * @param callBack 回调函数
      */
-    addListener(type: string | undefined, name: string, callBack: (...args: any[]) => void) {
+    addListener(name: string, callBack: (...args: any[]) => void) {
         if(this.listener) {
             if(this.isDesktop()) {
                 this.listener(name, callBack)
                 return
             }
         }
-        logger.error(null, `添加后端监听失败：${name}(${type})`)
+        logger.error(null, `添加后端监听失败：${name}`)
     },
 })

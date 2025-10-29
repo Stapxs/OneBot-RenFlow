@@ -1,8 +1,9 @@
+import { RenMessage } from '../../../types'
 import { BaseBotAdapter } from '../BotAdapter'
 import event from '../decorators'
-import type { AdapterOptions, AdapterMessage } from '../types'
-import { Mapping, mapToInterface } from '../util'
-import { RenMessage } from '../../../types'
+import type { AdapterMessage, NapcatAdapterOptions } from '../types'
+import { plainToInstance } from 'class-transformer'
+
 
 /**
  * NapcatAdapter: OneBot 协议适配器（Napcat 风格的 websocket 接入）
@@ -13,20 +14,21 @@ export class NapcatAdapter extends BaseBotAdapter {
     private reconnectAttempts = 0
     private reconnectTimer: any = null
 
-    constructor(id: string, opts?: AdapterOptions) {
+    declare options: NapcatAdapterOptions
+
+    constructor(id: string, opts?: NapcatAdapterOptions) {
         super(id, opts)
     }
 
     async connect(): Promise<void> {
         if (this.connected) return
 
-        const base = this.options?.url ?? this.options?.ws ?? this.options?.endpoint
+        const base = this.options?.url
         if (!base) throw new Error('NapcatAdapter: missing url in options')
-        const token = this.options?.token ?? this.options?.access_token ?? this.options?.accessToken
+        const token = this.options?.token
         const sep = base.includes('?') ? '&' : '?'
         const url = token ? `${base}${sep}access_token=${encodeURIComponent(token)}` : base
 
-        // connection options
         const reconnect = this.options?.reconnect ?? true
         const maxRetries = typeof this.options?.maxRetries === 'number' ? this.options.maxRetries : 5
         const retryInterval = typeof this.options?.retryInterval === 'number' ? this.options.retryInterval : 2000
@@ -146,55 +148,10 @@ export class NapcatAdapter extends BaseBotAdapter {
 
     // 工具方法 ==================================================
 
-    messageMapping = {
-        messageId: 'message_id',
-        messageSeqId: { path: 'real_seq',
-            transform: (val: any) => Number(val) },
-        messageType: 'message_type',
-        selfId: 'self_id',
-        groupId: 'group_id',
-        userId: 'user_id',
-        targetId: 'target_id',
-        'sender.userId': 'sender.user_id',
-        'sender.nickName': 'sender.nickname',
-        'sender.cardName': 'sender.card',
-        'sender.role': 'sender.role',
-        rawMessage: 'raw_message',
-        time: { path: 'time',
-            transform: (val: any) => new Date(val * 1000) },
-        message: {
-            path: 'message',
-            transform: (val: {[key: string]: any}[]) => {
-                const finalItems: any[] = []
-                for (const item of val) {
-                    const result: {[key: string]: any} = {
-                        type: item.type
-                    }
-                    switch(item.type) {
-                        case 'text': result.text = item.data.text; break;
-                        case 'image': {
-                            result.url = item.data.url
-                            result.summary = item.data.summary
-                            result.subType = item.data.sub_type
-                            if(item.data.emoji_id) {
-                                result.emojiId = item.data.emoji_id
-                                result.packageId = item.data.package_id
-                            }
-                            break;
-                        }
-                        case 'reply': result.id = item.data.id; break;
-                        default: continue;
-                    }
-                    finalItems.push(result)
-                }
-                return finalItems
-            }
-        }
-    }  as Mapping
-
     private formatMessage(data: any[]) {
         return data.map(item => {
-            return mapToInterface<RenMessage>(item, this.messageMapping)
+            // 为什么返回的 type 是 RenMessage[]，但实际是个 RenMessage
+            return plainToInstance(RenMessage, item as { [key: string]: any }, { excludeExtraneousValues: true })
         })
     }
 
@@ -202,15 +159,17 @@ export class NapcatAdapter extends BaseBotAdapter {
 
     @event('get')
     async get(msg: AdapterMessage) {
-        let data = JSON.parse(msg.data)
+        const data = JSON.parse(msg.data)
         // 对原始消息进行拆分二次投递事件
         const msgType = data.post_type === 'notice' ? data.sub_type ?? data.notice_type : data.post_type
-        if(msgType == 'message') {
-            data = this.formatMessage([data])
-            this.emitEvent('message', data[0])
-        } else if(msgType == 'message_sent') {
-            data = this.formatMessage([data])
-            this.emitEvent('message_mine', data[0])
+        if (msgType == 'message') {
+            const msgs = this.formatMessage([data])
+            msgs[0].isMine = false
+            this.emitEvent('message', msgs[0])
+        } else if (msgType == 'message_sent') {
+            const msgs = this.formatMessage([data])
+            msgs[0].isMine = true
+            this.emitEvent('message_mine', msgs[0])
         }
         return { ok: true }
     }

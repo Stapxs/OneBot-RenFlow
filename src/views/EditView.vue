@@ -10,9 +10,9 @@
                 <font-awesome-icon :icon="['fas', 'fa-file-export']" />
                 导出独立配置
             </button>
-            <button class="toolbar-btn execute-btn" :disabled="isExecuting" @click="executeWorkflow">
-                <font-awesome-icon :icon="['fas', isExecuting ? 'fa-spinner' : 'fa-play']" :spin="isExecuting" />
-                {{ isExecuting ? '执行中...' : '执行流程' }}
+            <button class="toolbar-btn execute-btn" @click="executeWorkflow">
+                <font-awesome-icon :icon="['fas', workflowEnabled ? 'fa-toggle-on' : 'fa-toggle-off']" />
+                {{ workflowEnabled ? '禁用工作流' : '启用工作流' }}
             </button>
         </div>
 
@@ -127,6 +127,20 @@
                                 <div class="flow-value">{{ (selectedNode as any).data?.label || '-' }}</div>
                             </div>
 
+                            <div v-if="selectedNodeInputs.length > 0" class="flow-row">
+                                <label>输入 (来自上游)</label>
+                                <div class="flow-value param-preview">
+                                    <pre>{{ selectedNodeInputsText }}</pre>
+                                </div>
+                            </div>
+
+                            <div v-if="selectedNodeOutputs.length > 0" class="flow-row">
+                                <label>输出 (schema)</label>
+                                <div class="flow-value param-preview">
+                                    <pre>{{ selectedNodeOutputsText }}</pre>
+                                </div>
+                            </div>
+
                             <div class="flow-actions">
                                 <button class="edit-btn" @click="focusOnNode((selectedNode as any))">聚焦</button>
                             </div>
@@ -139,7 +153,7 @@
 </template>
 
 <script setup lang="ts">
-import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter, WorkflowEngine } from 'renflow.runner'
+import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter, runWorkflow, RenMessage } from 'renflow.runner'
 
 import type { NodeMetadata, VueFlowWorkflow } from 'renflow.runner'
 import type { Node, Edge } from '@vue-flow/core'
@@ -160,6 +174,7 @@ import NoteNode from '@app/components/nodes/NoteNode.vue'
 import IfElseNode from '@app/components/nodes/IfElseNode.vue'
 
 import { WorkflowStorage } from '@app/functions/workflow'
+import { backend } from '@app/functions/backend'
 import type { WorkflowData } from '@app/functions/workflow'
 import { toast } from '@app/functions/toast'
 import { Logger, LogType } from '@app/functions/base'
@@ -168,13 +183,14 @@ const route = useRoute()
 const {
     onNodeDrag,
     getIntersectingNodes,
+    getIncomers,
+    findNode,
     updateNode,
     addEdges,
     addNodes,
     project,
     setCenter,
-    getViewport,
-    fitView
+    getViewport
 } = useVueFlow()
 
 const logger = new Logger()
@@ -197,11 +213,9 @@ init(LogLevel.DEBUG, {
 
 const nodeManager = runnerNodeManager
 const workflowConverter = new WorkflowConverter()
-const workflowEngine = new WorkflowEngine()
 
-// 执行状态
-const isExecuting = ref(false)
-const executingNodeId = ref<string | null>(null)
+// 当前工作流启用状态
+const workflowEnabled = ref(false)
 
 // 工作流信息
 const workflowInfo = ref({
@@ -248,13 +262,13 @@ watch(workflowInfo, (newVal) => {
 // 从 URL 参数获取工作流信息
 onMounted(async () => {
     const query = route.query
-    if (query.triggerType && query.triggerName && query.name) {
+    if (query.triggerName && query.name) {
         workflowInfo.value = {
             id: query.id as string | undefined,
-            triggerType: query.triggerType as string,
-            triggerTypeLabel: query.triggerTypeLabel as string || query.triggerType as string,
+            triggerType: (query.triggerType as string) || '',
+            triggerTypeLabel: (query.triggerTypeLabel as string) || (query.triggerLabel as string) || (query.triggerType as string) || '',
             triggerName: query.triggerName as string,
-            triggerLabel: query.triggerLabel as string || query.triggerName as string,
+            triggerLabel: (query.triggerLabel as string) || query.triggerName as string,
             name: query.name as string,
             description: (query.description as string) || ''
         }
@@ -265,16 +279,61 @@ onMounted(async () => {
         if (query.id) {
             await loadWorkflowById(query.id as string)
         } else {
-            // 创建触发器节点
+            // 创建触发器节点，并为节点附加 metadata 以便前端能够识别其输出结构
+            const triggerMeta: any = {
+                id: 'trigger',
+                name: '触发器',
+                description: `触发器: ${workflowInfo.value.triggerLabel}`,
+                category: 'input',
+                params: [],
+                icon: 'bolt'
+            }
+
+            // 如果是 message 触发器，动态根据 RenMessage class 生成输出结构（不包含 description）
+            if (workflowInfo.value.triggerName === 'message') {
+                try {
+                    const rm = new RenMessage()
+                    const keys = Object.keys(rm) as string[]
+                    triggerMeta.outputSchema = keys.map(k => {
+                        const v = (rm as any)[k]
+                        let t: string = 'any'
+                        if (v === null || v === undefined) {
+                            t = 'any'
+                        } else if (v instanceof Date) {
+                            t = 'string'
+                        } else if (Array.isArray(v)) {
+                            t = 'array'
+                        } else {
+                            const typ = typeof v
+                            if (typ === 'string') t = 'string'
+                            else if (typ === 'number') t = 'number'
+                            else if (typ === 'boolean') t = 'boolean'
+                            else if (typ === 'object') t = 'object'
+                            else t = 'any'
+                        }
+                        return { key: k, label: k, type: t }
+                    })
+                } catch (e) {
+                    triggerMeta.outputSchema = [
+                        { key: 'messageId', label: 'messageId', type: 'string' },
+                        { key: 'message', label: 'message', type: 'any' },
+                        { key: 'time', label: 'time', type: 'string' }
+                    ]
+                }
+            }
+
             nodes.value = [{
-                id: 'node-trigger',
+                id: workflowInfo.value.triggerName,
                 type: 'trigger',
                 position: { x: 0, y: 0 },
                 data: {
-                    triggerType: workflowInfo.value.triggerTypeLabel,
-                    triggerName: workflowInfo.value.triggerLabel
+                    triggerName: workflowInfo.value.triggerName,
+                    triggerLabel: workflowInfo.value.triggerLabel,
+                    metadata: triggerMeta
                 }
             }]
+            // 新建时默认未启用
+            workflowEnabled.value = false
         }
 
         // 更新节点 ID 计数器
@@ -304,6 +363,7 @@ async function saveWorkflow() {
             triggerTypeLabel: workflowInfo.value.triggerTypeLabel,
             triggerName: workflowInfo.value.triggerName,
             triggerLabel: workflowInfo.value.triggerLabel,
+            enabled: workflowEnabled.value,
             nodes: JSON.parse(JSON.stringify(nodes.value)), // 深拷贝确保数据完整
             edges: JSON.parse(JSON.stringify(edges.value))
         }
@@ -311,6 +371,15 @@ async function saveWorkflow() {
         const saved = await WorkflowStorage.save(workflowData)
         workflowInfo.value.id = saved.id
 
+        // 在桌面模式下，通知其他窗口工作流已更新（例如 ListView）
+        try {
+            if (backend.isDesktop()) {
+                const { emit } = await import('@tauri-apps/api/event')
+                void emit('workflow:updated', { id: saved.id, enabled: saved.enabled })
+            }
+        } catch (e) {
+            logger.add(LogType.ERR, '触发 workflow:updated 事件失败', e)
+        }
         // 使用 Toast 通知
         toast.success(`工作流已保存: ${saved.name}`)
         logger.add(LogType.INFO, '工作流已保存:', saved)
@@ -340,6 +409,9 @@ async function loadWorkflowById(id: string) {
                 triggerName: workflow.triggerName,
                 triggerLabel: workflow.triggerLabel
             }
+
+            // 恢复启用状态
+            workflowEnabled.value = !!workflow.enabled
 
             // 确保完整恢复节点和边数据
             nodes.value = workflow.nodes || []
@@ -420,99 +492,48 @@ function exportExecutionData() {
  */
 async function executeWorkflow() {
     try {
-        // 检查是否有节点
+        // 将 "执行" 操作改为切换启用状态并持久化
         if (nodes.value.length === 0) {
-            toast.error('当前工作流为空，无法执行')
+            toast.error('当前工作流为空，无法启用/禁用')
             return
         }
 
-        isExecuting.value = true
-        executingNodeId.value = null
-
-        // 构建 VueFlowWorkflow 数据
-        const vueFlowWorkflow: VueFlowWorkflow = {
-            id: workflowInfo.value.id || `workflow_temp_${Date.now()}`,
-            name: workflowInfo.value.name || '未命名工作流',
-            description: workflowInfo.value.description || '',
-            triggerType: workflowInfo.value.triggerType,
-            triggerTypeLabel: workflowInfo.value.triggerTypeLabel,
-            triggerName: workflowInfo.value.triggerName,
-            triggerLabel: workflowInfo.value.triggerLabel,
-            nodes: JSON.parse(JSON.stringify(nodes.value)),
-            edges: JSON.parse(JSON.stringify(edges.value)),
-            createdAt: Date.now(),
-            updatedAt: Date.now()
+        // 如果还没有 ID，先保存工作流以获得 ID
+        if (!workflowInfo.value.id) {
+            await saveWorkflow()
         }
 
-        // 转换为执行数据
-        const executionData = workflowConverter.convert(vueFlowWorkflow)
-
-        // 验证执行数据
-        const validation = workflowConverter.validate(executionData)
-        if (!validation.valid) {
-            logger.add(LogType.ERR, '工作流验证失败:', validation.errors)
-            toast.error(`工作流验证失败:\n${validation.errors.join('\n')}`)
-            isExecuting.value = false
+        const id = workflowInfo.value.id as string
+        const full = await WorkflowStorage.load(id)
+        if (!full) {
+            toast.error('无法加载工作流以切换状态')
             return
         }
 
-        toast.success('开始执行工作流')
-        logger.add(LogType.INFO, '开始执行工作流:', executionData)
+        full.enabled = !full.enabled
+        const saved = await WorkflowStorage.save(full)
+        workflowEnabled.value = !!saved.enabled
 
-        // 执行工作流（带回调和延迟）
-        fitView({ duration: 300 })
-        const result = await workflowEngine.execute(executionData, null, {
-            minDelay: 500, // 前端模式最少 0.5s 延迟
-            timeout: 60000, // 60 秒超时
-            callback: {
-                onNodeStart: async (nodeId) => {
-                    executingNodeId.value = nodeId
-                    highlightNode(nodeId, true)
-                    // 视图跟随执行中的节点
-                    let { zoom } = getViewport()
-                    const node = (nodes.value as any[]).find((n: any) => n.id === nodeId) as any
-                    if (node && node.position) {
-                        setCenter(
-                            node.position.x + 240,
-                            node.position.y + 100,
-                            { zoom: zoom, duration: 200, interpolate: 'linear' }
-                        )
-                    }
-                },
-                onNodeComplete: async (nodeId) => {
-                    highlightNode(nodeId, false)
-                },
-                onNodeError: async (nodeId, error) => {
-                    logger.add(LogType.ERR, `${nodeId}`, error)
-                    toast.error(`${error.message}`)
-                    setTimeout(() => {
-                        highlightNode(nodeId, false)
-                    }, 1200);
-                },
-                onWorkflowComplete: async (workflowResult) => {
-                    logger.add(LogType.INFO, '工作流执行完成:', workflowResult)
-                    executingNodeId.value = null
+        toast.success(saved.enabled ? '工作流已启用' : '工作流已禁用')
+        logger.add(LogType.INFO, `工作流 ${saved.id} 状态已切换: ${saved.enabled}`)
 
-                    if (workflowResult.success) {
-                        toast.success('工作流执行成功')
-                        logger.add(LogType.INFO, '执行日志:', workflowResult.logs)
-                    }
-                }
+        // 在桌面模式下广播事件给其他窗口（如 ListView）实时刷新
+        try {
+            if (backend.isDesktop()) {
+                const { emit } = await import('@tauri-apps/api/event')
+                void emit('workflow:updated', { id: saved.id, enabled: saved.enabled })
             }
-        })
-
-        logger.add(LogType.INFO, '最终结果:', result)
+        } catch (e) {
+            logger.add(LogType.ERR, '触发 workflow:updated 事件失败', e)
+        }
     } catch (error) {
-        toast.error('执行工作流失败')
-        logger.error(error as unknown as Error, '执行工作流失败')
-    } finally {
-        isExecuting.value = false
-        executingNodeId.value = null
+        toast.error('切换工作流启用状态失败')
+        logger.error(error as unknown as Error, '切换工作流启用状态失败')
     }
 }
 
 /**
- * 高亮节点
+ * 高亮/取消高亮节点（用于外部执行可视化）
  */
 function highlightNode(nodeId: string, highlight: boolean) {
     const node = nodes.value.find(n => n.id === nodeId)
@@ -522,6 +543,159 @@ function highlightNode(nodeId: string, highlight: boolean) {
         })
     }
 }
+
+// 在桌面模式下监听执行事件以实现可视化（从 ListView 发出的事件）
+onMounted(async () => {
+    try {
+        if (backend.isDesktop()) {
+            // 监听编辑器打开请求（当 ListView 请求打开已存在的编辑窗口时）
+            backend.addListener('workflow:open', async (evt: any) => {
+                const payload = evt?.payload || {}
+                const id = payload.id
+                if (id) {
+                    await loadWorkflowById(id)
+                }
+            })
+
+            // 监听执行接管请求：如果当前编辑的工作流被请求执行，则在编辑窗口内以 minDelay=1000 执行并回复 handled
+            backend.addListener('workflow:execute:request', async (evt: any) => {
+                const payload = evt?.payload || {}
+                const id = payload.id
+
+                const type = payload.type
+                const triggerP = payload.data
+                // payload 传递会丢失类型信息，需手动还原
+                if(type && triggerP.constructor?.name != type) {
+                    triggerP.__meta__ = {
+                        className: type
+                    }
+                }
+
+                if (id !== workflowInfo.value.id) return
+
+                // 回复已接管，ListView 会根据此回应跳过本地执行
+                try {
+                    const { emit } = await import('@tauri-apps/api/event')
+                    void emit('workflow:execute:handled', { id })
+                } catch (e) {
+                    logger.add(LogType.ERR, '发射 workflow:execute:handled 事件失败', e)
+                }
+
+                // 在编辑窗口内执行工作流，使用 minDelay=1000
+                try {
+                    // 构建执行数据
+                    if (!workflowInfo.value.id) return
+                    const vueFlowWorkflow: VueFlowWorkflow = {
+                        id: workflowInfo.value.id || `workflow_temp_${Date.now()}`,
+                        name: workflowInfo.value.name || '未命名工作流',
+                        description: workflowInfo.value.description || '',
+                        triggerType: workflowInfo.value.triggerType,
+                        triggerTypeLabel: workflowInfo.value.triggerTypeLabel,
+                        triggerName: workflowInfo.value.triggerName,
+                        triggerLabel: workflowInfo.value.triggerLabel,
+                        nodes: JSON.parse(JSON.stringify(nodes.value)),
+                        edges: JSON.parse(JSON.stringify(edges.value)),
+                        createdAt: Date.now(),
+                        updatedAt: Date.now()
+                    }
+
+                    const executionData = workflowConverter.convert(vueFlowWorkflow)
+
+                    runWorkflow(executionData, triggerP, {
+                        minDelay: 1000,
+                        timeout: 60000
+                    }, {
+                        onNodeStart: async (nodeId: string) => {
+                            // 本窗口可视化
+                            highlightNode(nodeId, true)
+                            // 广播节点开始事件供其他窗口显示
+                            try {
+                                const { emit } = await import('@tauri-apps/api/event')
+                                void emit('workflow:execute:nodeStart', { id, nodeId })
+                            } catch (e) {
+                                logger.add(LogType.ERR, '发射 workflow:execute:nodeStart 事件失败', e)
+                            }
+                        },
+                        onNodeComplete: async (nodeId: string) => {
+                        highlightNode(nodeId, false)
+                        try {
+                            const { emit } = await import('@tauri-apps/api/event')
+                            void emit('workflow:execute:nodeComplete', { id, nodeId })
+                        } catch (e) {
+                            logger.add(LogType.ERR, '发射 workflow:execute:nodeComplete 事件失败', e)
+                        }
+                        },
+                        onNodeError: async (nodeId: string, error: any) => {
+                            highlightNode(nodeId, false)
+                            try {
+                                const { emit } = await import('@tauri-apps/api/event')
+                                void emit('workflow:execute:nodeError', { id, nodeId, error: String(error) })
+                            } catch (e) {
+                                logger.add(LogType.ERR, '发射 workflow:execute:nodeError 事件失败', e)
+                            }
+                        },
+                        onWorkflowComplete: async (workflowResult: any) => {
+                            try {
+                                const { emit } = await import('@tauri-apps/api/event')
+                                void emit('workflow:execute:complete', { id, success: !!workflowResult.success, logs: workflowResult.logs })
+                            } catch (e) {
+                                logger.add(LogType.ERR, '发射 workflow:execute:complete 事件失败', e)
+                            }
+                            // 清理高亮
+                            for (const n of nodes.value) updateNode(n.id, { class: '' })
+                        }
+                    })
+                } catch (e) {
+                    logger.add(LogType.ERR, '编辑器内执行失败', e)
+                }
+            })
+            // 监听节点开始
+            backend.addListener('workflow:execute:nodeStart', (evt: any) => {
+                const payload = evt?.payload || {}
+                if (payload.id !== workflowInfo.value.id) return
+                const nodeId = payload.nodeId
+                highlightNode(nodeId, true)
+                // try {
+                //     const node = (nodes.value as any[]).find((n: any) => n.id === nodeId) as any
+                //     if (node && node.position) {
+                //         const { zoom } = getViewport()
+                //         setCenter(node.position.x + 240, node.position.y + 100, { zoom, duration: 200 })
+                //     }
+                // } catch (e) {
+                //     // ignore
+                // }
+            })
+
+            // 监听节点完成
+            backend.addListener('workflow:execute:nodeComplete', (evt: any) => {
+                const payload = evt?.payload || {}
+                if (payload.id !== workflowInfo.value.id) return
+                const nodeId = payload.nodeId
+                highlightNode(nodeId, false)
+            })
+
+            // 监听节点错误
+            backend.addListener('workflow:execute:nodeError', (evt: any) => {
+                const payload = evt?.payload || {}
+                if (payload.id !== workflowInfo.value.id) return
+                const nodeId = payload.nodeId
+                highlightNode(nodeId, false)
+                toast.error(`节点执行错误: ${payload.error || ''}`)
+            })
+
+            // 监听执行开始/完成
+            backend.addListener('workflow:execute:start', (evt: any) => {
+                const payload = evt?.payload || {}
+                if (payload.id !== workflowInfo.value.id) return
+                toast.info('工作流开始执行')
+            })
+        }
+    } catch (e) {
+        logger.add(LogType.ERR, '注册执行可视化事件监听失败', e)
+    }
+})
+
+
 
 // 搜索关键词
 const searchKeyword = ref('')
@@ -565,6 +739,41 @@ const edges = ref<Edge[]>([])
 const selectedNode = computed(() => {
     return (nodes.value as any[]).find(n => (n as any).selected) as (Node & { data?: any }) | undefined
 })
+
+// 计算当前选中节点的可用输入（来自上游节点的 outputSchema）
+const selectedNodeInputs = computed(() => {
+    const res: Array<{ label: string; key: string; type?: string }> = []
+    const node = selectedNode.value
+    if (!node) return res
+
+    const current = findNode(node.id)
+    if (!current) return res
+
+    const incomers = getIncomers(current)
+    for (const incomer of incomers) {
+        const metadata = incomer.data?.metadata
+        if (metadata?.outputSchema && Array.isArray(metadata.outputSchema)) {
+            for (const f of metadata.outputSchema) {
+                res.push({ label: `${incomer.data?.label || incomer.id}.${f.label}`, key: `${incomer.id}.${f.key}`, type: f.type })
+            }
+        }
+    }
+
+    return res
+})
+
+// 计算当前选中节点的输出 schema（来自节点自身的 metadata.outputSchema 或 data.metadata）
+const selectedNodeOutputs = computed(() => {
+    const node = selectedNode.value
+    if (!node) return [] as Array<{ key: string; label: string; type?: string }>
+    const meta = node.data?.metadata
+    if (!meta) return []
+    if (!meta.outputSchema || !Array.isArray(meta.outputSchema)) return []
+    return meta.outputSchema.map((f: any) => ({ key: f.key, label: f.label || f.key, type: f.type }))
+})
+
+const selectedNodeInputsText = computed(() => selectedNodeInputs.value.map((i: any) => `${i.label} : ${i.type || 'any'}`).join('\n'))
+const selectedNodeOutputsText = computed(() => selectedNodeOutputs.value.map((o: any) => `${o.label} : ${o.type || 'any'}`).join('\n'))
 
 // 本地编辑选中节点的参数（用于右侧面板快速编辑）
 const editingNodeParams = ref<Record<string, any>>({})
@@ -711,6 +920,8 @@ function calculatePushDirection(draggedNode: Node, intersectingNode: Node) {
  * 处理节点拖拽时的重叠检测和推开
  */
 onNodeDrag(({ node: draggedNode }) => {
+    return // 设置功能还没完成，暂时禁用
+    // eslint-disable-next-line no-unreachable
     const intersections = getIntersectingNodes(draggedNode)
 
     if (intersections.length > 0) {
@@ -1114,7 +1325,7 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
 .flow-value {
     text-align: right;
     flex: 1;
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     color: var(--color-font);
     word-break: break-word;
 }
@@ -1126,6 +1337,7 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
     text-align: left;
     padding: 10px;
     min-width: calc(100% - 20px);
+    font-size: 0.7rem;
 }
 .flow-value.param-preview::-webkit-scrollbar {
     height: 6px;

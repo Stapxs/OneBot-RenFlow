@@ -116,7 +116,6 @@ const emitUpdate = () => {
             <div class="condition-row">
                 <label>参数</label>
                 <select :value="localValue.parameter" @change="updateParameter(($event.target as HTMLSelectElement).value)">
-                    <option value="input">输入数据 (input)</option>
                     <option v-for="param in availableParameters" :key="param.value" :value="param.value">
                         {{ param.label }}
                     </option>

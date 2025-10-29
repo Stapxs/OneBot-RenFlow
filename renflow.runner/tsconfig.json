@@ -15,7 +15,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "types": ["node"],
-    "experimentalDecorators": true
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

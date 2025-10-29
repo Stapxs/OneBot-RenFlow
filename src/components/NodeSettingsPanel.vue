@@ -21,6 +21,31 @@ const { getIncomers, findNode } = useVueFlow()
 // 本地参数值
 const localValues = ref<Record<string, any>>({ ...props.modelValue })
 
+// tip 显示状态（支持点击切换）
+const visibleTips = ref<Record<string, boolean>>({})
+const toggleTip = (key: string) => {
+    visibleTips.value[key] = !visibleTips.value[key]
+}
+
+// 判断参数是否可见（支持 param.visibleWhen ）
+const paramVisible = (param: any) => {
+    const cond = param?.visibleWhen
+    if (!cond) return true
+    const key = cond.key
+    const value = cond.value
+    const cur = localValues.value[key]
+    if (value === undefined) return Boolean(cur)
+    if (Array.isArray(value)) return value.includes(cur)
+    return cur === value
+}
+
+// 计算可见的参数列表以避免在模板中混用 v-for 与 v-if
+const visibleParams = computed(() => (props.params || []).filter((p: any) => paramVisible(p)))
+
+// helper for tip handling (avoid template type errors)
+const paramTip = (param: any) => Boolean(param && param.tip)
+const paramGetTip = (param: any) => (param && param.tip) || ''
+
 // 获取可用参数（来自上游节点的输出）
 const availableParameters = computed(() => {
     const parameters: Array<{ label: string; value: string }> = []
@@ -84,57 +109,58 @@ const cancelSettings = () => {
                 </div>
 
                 <div class="settings-body">
-                    <div v-for="param in params" :key="param.key" class="param-item">
-                        <label v-if="param.type != 'switch'" :class="{ required: param.required }">
-                            {{ param.label }}
-                        </label>
+                    <div v-for="param in visibleParams" :key="param.key" class="param-item">
+                        <div v-if="param.type != 'switch'" class="param-label">
+                            <label :class="{ required: param.required }">{{ param.label }}</label>
+                            <button v-if="paramTip(param)" class="info-btn" aria-label="info"
+                                @click.stop.prevent="toggleTip(param.key)">
+                                <font-awesome-icon :icon="['fas', 'info-circle']" />
+                            </button>
+                            <div v-if="paramTip(param)" class="tip-popup" :class="{ visible: visibleTips[param.key] }">
+                                {{ paramGetTip(param) }}
+                            </div>
+                        </div>
 
                         <!-- input 类型 -->
-                        <input
-                            v-if="param.type === 'input'"
-                            type="text"
-                            :placeholder="param.placeholder"
+                        <input v-if="param.type === 'input'" type="text" :placeholder="param.placeholder"
                             :value="localValues[param.key]"
                             @input="updateParam(param.key, ($event.target as HTMLInputElement).value)">
 
                         <!-- number 类型 -->
-                        <input v-else-if="param.type === 'number'"
-                            type="number"
-                            :placeholder="param.placeholder"
+                        <input v-else-if="param.type === 'number'" type="number" :placeholder="param.placeholder"
                             :value="localValues[param.key]"
                             @input="updateParam(param.key, Number(($event.target as HTMLInputElement).value))">
 
                         <!-- textarea 类型 -->
-                        <textarea v-else-if="param.type === 'textarea'"
-                            rows="4"
-                            :placeholder="param.placeholder"
+                        <textarea v-else-if="param.type === 'textarea'" rows="4" :placeholder="param.placeholder"
                             :value="localValues[param.key]"
                             @input="updateParam(param.key, ($event.target as HTMLTextAreaElement).value)" />
 
                         <!-- select 类型 -->
-                        <select v-else-if="param.type === 'select'"
-                            :value="localValues[param.key]"
+                        <select v-else-if="param.type === 'select'" :value="localValues[param.key]"
                             @change="updateParam(param.key, ($event.target as HTMLSelectElement).value)">
-                            <option v-for="option in param.options"
-                                :key="option.value"
-                                :value="option.value">
+                            <option v-for="option in param.options" :key="option.value" :value="option.value">
                                 {{ option.label }}
                             </option>
                         </select>
 
                         <!-- switch 类型 -->
-                        <label v-else-if="param.type === 'switch'" class="ss-switch">
-                            <input
-                                type="checkbox"
-                                :checked="localValues[param.key]"
-                                @change="updateParam(param.key, ($event.target as HTMLInputElement).checked)">
-                            <div />
-                            <span>{{ param.label }}</span>
-                        </label>
+                        <div v-else-if="param.type === 'switch'" class="switch-container">
+                            <label :class="{ required: param.required }">
+                                {{ param.label }}
+                            </label>
+                            <label class="ss-switch" @mousedown.stop @pointerdown.stop>
+                                <input v-model="localValues[param.key]"
+                                    type="checkbox"
+                                    @change="updateParam(param.key, ($event.target as HTMLInputElement).checked)">
+                                <div>
+                                    <div />
+                                </div>
+                            </label>
+                        </div>
 
                         <!-- condition 类型 -->
-                        <ConditionParam
-                            v-else-if="param.type === 'condition'"
+                        <ConditionParam v-else-if="param.type === 'condition'"
                             :model-value="localValues[param.key] || { parameter: 'input', mode: 'exists', value: '' }"
                             :available-parameters="availableParameters"
                             @update:model-value="updateParam(param.key, $event)" />
@@ -203,6 +229,7 @@ const cancelSettings = () => {
         transform: translateY(30px) scale(0.95);
         opacity: 0;
     }
+
     to {
         transform: translateY(0) scale(1);
         opacity: 1;
@@ -214,6 +241,7 @@ const cancelSettings = () => {
         transform: translateY(0) scale(1);
         opacity: 1;
     }
+
     to {
         transform: translateY(20px) scale(0.98);
         opacity: 0;
@@ -272,7 +300,8 @@ const cancelSettings = () => {
     margin-bottom: 0;
 }
 
-.param-item > label {
+.param-item>label,
+.param-item .switch-container > label {
     display: block;
     font-size: 0.85rem;
     color: var(--color-font);
@@ -280,7 +309,7 @@ const cancelSettings = () => {
     font-weight: 500;
 }
 
-.param-item > label.required::after {
+.param-item>label.required::after {
     content: ' *';
     color: var(--color-main);
 }
@@ -301,6 +330,10 @@ const cancelSettings = () => {
     box-sizing: border-box;
 }
 
+.param-item select {
+    height: 36px;
+}
+
 .param-item input[type="text"]:focus,
 .param-item input[type="number"]:focus,
 .param-item textarea:focus,
@@ -319,10 +352,28 @@ const cancelSettings = () => {
     cursor: pointer;
 }
 
-.param-item .ss-switch {
-    display: flex;
+.param-item .switch-container {
     align-items: center;
-    cursor: pointer;
+    display: flex;
+}
+.param-item .switch-container label:first-child {
+    flex: 1;
+}
+.param-item .ss-switch {
+    --switch-dot-border: 4px;
+    --switch-dot-margin: 5px;
+    --switch-height: 25px;
+    margin-left: 10px;
+    margin-bottom: 0;
+    min-width: 45px;
+}
+.param-item .ss-switch > div > div {
+    margin-left: 1px;
+    margin-top: 1px;
+}
+.param-item .ss-switch input:checked ~ div > div {
+    border: var(--switch-dot-border) solid #fff;
+    margin-left: calc(100% - var(--switch-height) + var(--switch-dot-margin) - 4px);
 }
 
 .settings-footer {
@@ -364,5 +415,57 @@ const cancelSettings = () => {
 
 .settings-footer button:active {
     transform: scale(0.98);
+}
+
+
+.param-label {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    margin-bottom: 10px;
+}
+
+.info-btn {
+    background: transparent;
+    border: none;
+    color: var(--color-font-1);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px
+}
+
+.info-btn:hover {
+    color: var(--color-font)
+}
+
+.tip-popup {
+    position: absolute;
+    top: 28px;
+    left: 0;
+    min-width: 200px;
+    font-size: 0.8rem;
+    color: var(--color-font-2);
+    background: var(--color-card-1);
+    border: 1px solid var(--color-card-2);
+    padding: 8px 10px;
+    border-radius: 6px;
+    box-shadow: 0 6px 18px var(--color-shader);
+    opacity: 0;
+    transform: translateY(calc(-100% - 2rem - 6px));
+    transition: opacity 0.15s, transform 0.15s;
+    z-index: 1100;
+    pointer-events: none;
+}
+
+.tip-popup.visible {
+    transform: translateY(calc(-100% - 2rem));
+    opacity: 1;
+}
+
+.info-btn:hover+.tip-popup {
+    transform: translateY(calc(-100% - 2rem));
+    opacity: 1;
 }
 </style>

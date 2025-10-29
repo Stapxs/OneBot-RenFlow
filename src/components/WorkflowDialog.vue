@@ -11,7 +11,6 @@ const emit = defineEmits<{
 }>()
 
 interface WorkflowConfig {
-    triggerType: 'event' | 'notification'
     triggerName: string
     triggerLabel: string  // 添加显示文本
     customTriggerName?: string
@@ -21,37 +20,21 @@ interface WorkflowConfig {
 
 // 表单数据
 const formData = ref<WorkflowConfig>({
-    triggerType: 'event',
-    triggerName: 'new_msg',
-    triggerLabel: '新消息 (new_msg)',
+    triggerName: 'message',
+    triggerLabel: '新消息 (message)',
     customTriggerName: '',
     name: '',
     description: ''
 })
 
-// 触发名称选项
+// 触发名称选项（合并事件与通知类型）
 const triggerNameOptions = computed(() => {
-    if (formData.value.triggerType === 'event') {
-        return [
-            { label: '新消息 (new_msg)', value: 'new_msg' },
-            { label: '群消息 (group_msg)', value: 'group_msg' },
-            { label: '私聊消息 (private_msg)', value: 'private_msg' },
-            { label: '自定义', value: 'custom' }
-        ]
-    } else {
-        return [
-            { label: '好友请求 (friend_request)', value: 'friend_request' },
-            { label: '群邀请 (group_invite)', value: 'group_invite' },
-            { label: '自定义', value: 'custom' }
-        ]
-    }
-})
-
-// 监听触发类型变化,重置触发名称
-watch(() => formData.value.triggerType, () => {
-    formData.value.triggerName = triggerNameOptions.value[0].value
-    formData.value.triggerLabel = triggerNameOptions.value[0].label
-    formData.value.customTriggerName = ''
+    return [
+        { label: '新消息 (message)', value: 'message' },
+        { label: '好友请求 (friend_request)', value: 'friend_request' },
+        { label: '群邀请 (group_invite)', value: 'group_invite' },
+        { label: '自定义', value: 'custom' }
+    ]
 })
 
 // 监听触发名称变化,更新显示文本
@@ -63,9 +46,7 @@ watch(() => formData.value.triggerName, (newValue) => {
 })
 
 // 是否显示自定义触发名称输入框
-const showCustomTriggerName = computed(() => {
-    return formData.value.triggerName === 'custom'
-})
+const showCustomTriggerName = computed(() => formData.value.triggerName === 'custom')
 
 // 表单验证
 const isValid = computed(() => {
@@ -84,7 +65,9 @@ const create = () => {
     if (!isValid.value) return
 
     const workflow: WorkflowConfig = {
-        ...formData.value,
+        triggerName: formData.value.triggerName,
+        triggerLabel: formData.value.triggerLabel,
+        customTriggerName: formData.value.customTriggerName,
         name: formData.value.name.trim(),
         description: formData.value.description.trim()
     }
@@ -94,9 +77,8 @@ const create = () => {
 
     // 重置表单
     formData.value = {
-        triggerType: 'event',
-        triggerName: 'new_msg',
-        triggerLabel: '新消息 (new_msg)',
+        triggerName: 'message',
+        triggerLabel: '新消息 (message)',
         customTriggerName: '',
         name: '',
         description: ''
@@ -116,15 +98,6 @@ const create = () => {
                 </div>
 
                 <div class="dialog-body">
-                    <!-- 触发类型 -->
-                    <div class="form-item">
-                        <label class="required">触发类型</label>
-                        <select v-model="formData.triggerType">
-                            <option value="event">事件</option>
-                            <option value="notification">通知</option>
-                        </select>
-                    </div>
-
                     <!-- 触发名称 -->
                     <div class="form-item">
                         <label class="required">触发名称</label>
@@ -278,6 +251,10 @@ const create = () => {
     outline: none;
     transition: border-color 0.2s, background 0.2s;
     box-sizing: border-box;
+}
+
+.form-item select {
+    height: 36px;
 }
 
 .form-item input[type="text"]:focus,

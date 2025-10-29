@@ -3,6 +3,8 @@
  * 独立的工作流执行引擎，支持 OneBot 协议连接
  */
 
+import 'reflect-metadata'
+
 import { Logger, LogLevel } from './utils/logger.js'
 import { nodeManager } from './nodes/index.js'
 import path from 'path'
@@ -96,6 +98,8 @@ if (isNode && import.meta.url === `file://${process.argv[1]}`) {
 export { Logger, LogLevel } from './utils/logger.js'
 export * from './nodes/index.js'
 export * from './workflow/index.js'
+export * from './types.js'
+export { connectorManager } from './connectors/index.js'
 
 /**
  * 全局初始化入口。

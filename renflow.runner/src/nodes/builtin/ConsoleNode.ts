@@ -61,13 +61,46 @@ export class ConsoleNode extends BaseNode {
         params: Record<string, any>,
         context: NodeContext
     ): Promise<NodeExecutionResult> {
+        console.log(input)
         const { message, logLevel = 'log', includeInput = false } = params
 
-        // 构建输出内容
-        let outputMessage = message
+        // 模板渲染：支持使用 {path.to.field} 语法引用 input 中的字段
+        const resolvePath = (obj: any, path: string) => {
+            if (!obj || !path) return undefined
+            // 支持 a.b.c 或 a[0].b 或 a.0.b 形式
+            const parts = path.replace(/\[(\d+)\]/g, '.$1').split('.')
+            let cur: any = obj
+            for (const p of parts) {
+                if (cur === undefined || cur === null) return undefined
+                // 如果是数字索引，转换为 number
+                const idx = Number(p)
+                if (!Number.isNaN(idx) && Array.isArray(cur)) {
+                    cur = cur[idx]
+                } else {
+                    cur = cur[p]
+                }
+            }
+            return cur
+        }
 
+        const renderTemplate = (tpl: string, ctxObj: any) => {
+            if (tpl === undefined || tpl === null) return ''
+            return String(tpl).replace(/\{([^}]+)\}/g, (_m, p1) => {
+                try {
+                    const val = resolvePath(ctxObj, p1.trim())
+                    if (val === undefined) return ''
+                    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') return String(val)
+                    return JSON.stringify(val)
+                } catch (e) {
+                    return ''
+                }
+            })
+        }
+
+        // 构建输出内容（渲染模板）
+        let outputMessage = renderTemplate(message, input)
         if (includeInput) {
-            outputMessage = `${message} | 输入数据: ${JSON.stringify(input)}`
+            outputMessage = `${outputMessage} | 输入数据: ${JSON.stringify(input)}`
         }
 
         // 根据日志级别输出
@@ -75,31 +108,34 @@ export class ConsoleNode extends BaseNode {
             case 'warn':
                 context.logger.warn(outputMessage)
                 if (includeInput) {
-                    console.warn(message, input)
+                    console.warn(outputMessage, input)
                 } else {
-                    console.warn(message)
+                    console.warn(outputMessage)
                 }
                 break
             case 'error':
                 context.logger.error(outputMessage)
                 if (includeInput) {
-                    console.error(message, input)
+                    console.error(outputMessage, input)
                 } else {
-                    console.error(message)
+                    console.error(outputMessage)
                 }
                 break
             default:
                 context.logger.log(outputMessage)
                 if (includeInput) {
-                    console.log(message, input)
+                    console.log(outputMessage, input)
                 } else {
-                    console.log(message)
+                    console.log(outputMessage)
                 }
         }
 
         return {
             success: true,
-            output: input // 将输入数据传递到下一个节点
+            output: {
+                logs: outputMessage,
+                input: input
+            }
         }
     }
 }

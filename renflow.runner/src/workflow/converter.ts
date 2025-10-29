@@ -26,10 +26,8 @@ export class WorkflowConverter {
      * @returns 执行数据
      */
     convert(vueFlowWorkflow: VueFlowWorkflow): WorkflowExecution {
-        this.logger.info(`开始转换工作流: ${vueFlowWorkflow.name}`)
-
         // 1. 提取触发器配置
-        const trigger = this.extractTrigger(vueFlowWorkflow)
+    let trigger = this.extractTrigger(vueFlowWorkflow)
 
         // 2. 找到触发器节点
         const triggerNode = vueFlowWorkflow.nodes.find(
@@ -38,6 +36,17 @@ export class WorkflowConverter {
 
         if (!triggerNode) {
             throw new Error('未找到触发器节点')
+        }
+
+        // 如果触发器节点包含额外参数（例如过滤设置、开关等），把它们合并到 trigger.params 中
+        // 这样在执行时可以通过 workflow.trigger.params 访问这些设置
+        if (triggerNode.data) {
+            const triggerParams = triggerNode.data || {}
+            delete triggerParams.metadata
+            trigger = {
+                ...trigger,
+                params: triggerParams
+            }
         }
 
         // 3. 找到触发器的下一个节点（入口节点）
@@ -58,7 +67,6 @@ export class WorkflowConverter {
             updatedAt: vueFlowWorkflow.updatedAt
         }
 
-        this.logger.info(`工作流转换完成，共 ${Object.keys(nodes).length} 个执行节点`)
         return execution
     }
 

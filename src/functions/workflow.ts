@@ -20,6 +20,10 @@ export interface WorkflowData {
     triggerTypeLabel: string        // 触发器类型标签
     triggerName: string             // 触发器名称
     triggerLabel: string            // 触发器标签
+    /** 启动参数：在执行或启用工作流时传入的参数 */
+    startParams?: { [key: string]: any }
+    /** 是否启用（用于切换执行/启用状态） */
+    enabled?: boolean
     nodes: Node[]                   // 节点列表
     edges: Edge[]                   // 连接线列表
     createdAt: number               // 创建时间戳
@@ -37,6 +41,8 @@ export interface WorkflowListItem {
     triggerTypeLabel: string
     triggerName: string
     triggerLabel: string
+    startParams?: { [key: string]: any }
+    enabled?: boolean
     createdAt: number
     updatedAt: number
 }
@@ -80,6 +86,8 @@ export class WorkflowStorage {
             triggerTypeLabel: workflow.triggerTypeLabel || workflow.triggerType || '',
             triggerName: workflow.triggerName || '',
             triggerLabel: workflow.triggerLabel || workflow.triggerName || '',
+            startParams: workflow.startParams || {},
+            enabled: workflow.enabled !== undefined ? workflow.enabled : false,
             nodes: workflow.nodes || [],
             edges: workflow.edges || [],
             createdAt: workflow.createdAt || now,
@@ -196,6 +204,8 @@ export class WorkflowStorage {
             triggerTypeLabel: w.triggerTypeLabel,
             triggerName: w.triggerName,
             triggerLabel: w.triggerLabel,
+            startParams: w.startParams || {},
+            enabled: w.enabled || false,
             createdAt: w.createdAt,
             updatedAt: w.updatedAt
         }))
@@ -269,6 +279,8 @@ export class WorkflowStorage {
             triggerTypeLabel: w.triggerTypeLabel,
             triggerName: w.triggerName,
             triggerLabel: w.triggerLabel,
+            startParams: w.startParams || {},
+            enabled: w.enabled || false,
             createdAt: w.createdAt,
             updatedAt: w.updatedAt
         }))
