@@ -1,16 +1,18 @@
 import { EventEmitter } from 'events'
 import type { AdapterId, AdapterOptions, AdapterMessage, AdapterEventHandler, AdapterEventType } from './types'
-import { getEventMeta, getApiMeta } from './decorators'
+import { getEventMeta } from './decorators'
+import { RenApiData } from './msgTypes'
 
 export interface BotAdapter {
     id: AdapterId
     options?: AdapterOptions
     connect(): Promise<void>
     disconnect(): Promise<void>
-    send(message: AdapterMessage): Promise<void>
     on(event: string, handler: AdapterEventHandler): void
     off(event: string, handler: AdapterEventHandler): void
-    callApi(name: string, ...args: any[]): Promise<any>
+
+    callApiSync(message: RenApiData): any
+    callApiAsync(message: RenApiData): Promise<any>
 
     // 适配器必须实现一些通用的 API
     get(message: AdapterMessage): Promise<void>
@@ -34,8 +36,6 @@ export abstract class BaseBotAdapter implements BotAdapter {
 
     abstract connect(): Promise<void>
     abstract disconnect(): Promise<void>
-    abstract send(message: AdapterMessage): Promise<void>
-    // 抽象方法，强制子类实现
     abstract get(message: AdapterMessage): Promise<any>
 
     on(event: string | string[], handler: AdapterEventHandler) {
@@ -92,20 +92,9 @@ export abstract class BaseBotAdapter implements BotAdapter {
         } catch (e) { /* ignore */ }
     }
 
-    /**
-     * 调用由 @api 装饰的方法（按名称查找）
-     * 如果找到，将以 this 为上下文执行并返回结果（支持同步/异步方法）
-     */
-    public async callApi(name: string, ...args: any[]): Promise<any> {
-        const meta = getApiMeta(Object.getPrototypeOf(this))
-        if (!meta || meta.length === 0) throw new Error('no api methods')
-        const rec = meta.find(m => m.name === name)
-        if (!rec) throw new Error(`api not found: ${name}`)
-        const fn = (this as any)[rec.method]
-        if (typeof fn !== 'function') throw new Error(`api method is not a function: ${rec.method}`)
-        // support promise or value
-        return await Promise.resolve(fn.apply(this, args))
-    }
+    // 适配器需实现以下方法以处理 RenApiData
+    abstract callApiSync(message: RenApiData): any
+    abstract callApiAsync(message: RenApiData): Promise<any>
 }
 
 export default BotAdapter

@@ -4,11 +4,13 @@
 
 import jp from 'jsonpath'
 import shellQuote from 'shell-quote'
-import parseArgs from 'yargs-parser'
+import mri from 'mri'
 
 import { RenMessage, WorkflowConverter, WorkflowEngine, WorkflowExecutionResult } from '../index.js'
 import { Logger } from '../utils/logger.js'
 import { WorkflowExecution } from './types.js'
+import { BaseBotAdapter } from '../connectors/index.js'
+import { startsWithArray } from '../utils/util.js'
 
 export * from './types.js'
 export * from './converter.js'
@@ -24,7 +26,7 @@ export * from './engine.js'
 export async function runWorkflow(
     executionData: WorkflowExecution,
     data: any,
-    configs?: { minDelay?: number; timeout?: number },
+    configs?: { minDelay?: number; timeout?: number, bot?: BaseBotAdapter },
     callbacks?: {
         onNodeStart?: (nodeId: string) => void | Promise<void>
         onNodeComplete?: (nodeId: string) => void | Promise<void>
@@ -41,8 +43,6 @@ export async function runWorkflow(
 
     const triggerCheck = checkTriggerConfig(executionData.trigger.params, data)
     if (!triggerCheck) {
-        const logger = new Logger('runWorkflow')
-        logger.info(`工作流 ${executionData.id} 未通过触发验证，跳过执行。`)
         // 触发一下结束
         callbacks?.onWorkflowComplete && await callbacks.onWorkflowComplete({
             success: true,
@@ -56,6 +56,9 @@ export async function runWorkflow(
     await engine.execute(executionData, data, {
         minDelay: configs?.minDelay || 1000,
         timeout: configs?.timeout || 60000,
+        initialGlobals: {
+            ...(configs?.bot ? { bot: configs.bot } : {})
+        },
         callback: {
             onNodeStart: async (nodeId: string) => {
                 callbacks?.onNodeStart && await callbacks.onNodeStart(nodeId)
@@ -83,7 +86,7 @@ export async function runWorkflow(
 export async function runWorkflowByTrigger(
     executionData: WorkflowExecution[],
     triggerData: any,
-    configs?: { minDelay?: number; timeout?: number },
+    configs?: { minDelay?: number; timeout?: number, bot?: BaseBotAdapter },
     callbacks?: {
         /**
          * 触发前检查，你可以通过返回 false 来阻止工作流执行
@@ -111,7 +114,6 @@ export async function runWorkflowByTrigger(
         if (callbacks?.onWorkflowStart) {
             const allow = await callbacks.onWorkflowStart(workflow.id)
             if (!allow) {
-                logger.info('工作流未执行， onWorkflowStart 回调阻止了执行。')
                 continue
             }
         }
@@ -140,23 +142,38 @@ function checkTriggerConfig(params: any, data: any) {
         try {
             // 获取 triggerConfig.filterParam 对应的字段内容
             const results = jp.query(data, triggerConfig.filterParam)
-            const className = data.__meta__?.className || data.constructor?.name
+            const className = data.__meta__?.className || Object.getPrototypeOf(data.constructor).name || data.constructor?.name
             // 消息匹配处理
             if (results.length == 1 && className === 'RenMessage') {
                 if(!triggerConfig.includeSelf && (results[0] as RenMessage).isMine) {
                     throw new Error('跳过自己发送的消息')
                 }
                 const message = data as RenMessage
-                const text = RenMessage.getTextContent(message.message)
+                let text = RenMessage.getTextContent(message.message)
                 switch (triggerConfig.filterMode) {
                     case 'regex': {
                         const regex = new RegExp(triggerConfig.regexExpression)
                         triggered = regex.test(text)
                         break
                     }
-                    // case 'shell': {
-
-                    // }
+                    case 'shell': {
+                        if(!text.startsWith(triggerConfig.prefix)) break
+                        try {
+                            // 解析配置的条件
+                            const rawTokensOpt = shellQuote.parse(triggerConfig.shellCommand)
+                            const tokensOpt = rawTokensOpt.filter((t): t is string => typeof t === 'string')
+                            const argvOpt = mri(tokensOpt)
+                            // 解析消息文本
+                            text = text.substring(triggerConfig.prefix.length).trim()
+                            const rawTokens = shellQuote.parse(text)
+                            const tokens = rawTokens.filter((t): t is string => typeof t === 'string')
+                            const argv = mri(tokens)
+                            // 如果 argvOpt._ 是 argv._ 的开头一部分
+                            if(startsWithArray(argv._, argvOpt._)) {
+                                triggered = true
+                            }
+                        } catch (err) { /**/ }
+                    }
                 }
             }
         } catch (error) {

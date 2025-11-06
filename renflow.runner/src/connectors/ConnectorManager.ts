@@ -1,4 +1,7 @@
 // 简易的连接器管理器
+
+import { RenApiData } from './adapter/msgTypes'
+
 // 负责注册/获取适配器，并提供队列适配器的工厂方法
 export class ConnectorManager {
     private adapters: Map<string, any> = new Map()
@@ -12,11 +15,11 @@ export class ConnectorManager {
      * 通过 adapterId 调用适配器导出的 @api 方法
      * 如果适配器未注册或不支持 callApi，将抛出错误
      */
-    async callAdapterApi(adapterId: string, apiName: string, ...args: any[]): Promise<any> {
+    async callAdapterApi(adapterId: string, message: RenApiData): Promise<any> {
         const adapter = this.adapters.get(adapterId)
         if (!adapter) throw new Error(`adapter not found: ${adapterId}`)
-        if (typeof adapter.callApi !== 'function') throw new Error(`adapter does not support callApi: ${adapterId}`)
-        return await adapter.callApi(apiName, ...args)
+        if (typeof adapter.callApiAsync !== 'function') throw new Error(`adapter does not support callApiAsync: ${adapterId}`)
+        return await adapter.callApiAsync(message)
     }
 
     // 注销适配器
@@ -29,7 +32,7 @@ export class ConnectorManager {
         return this.adapters.get(id) as T | undefined
     }
 
-    // 创建 BotAdapter 的简单工厂（支持 'mock' 作为测试实现）
+    // 创建 BotAdapter 的简单工厂
     async createBotAdapter(type: string, opts: any, adapterId?: string) {
         const id = adapterId || `bot-${Math.random().toString(36).slice(2, 8)}`
 

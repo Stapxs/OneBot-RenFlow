@@ -153,7 +153,7 @@
 </template>
 
 <script setup lang="ts">
-import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter, runWorkflow, RenMessage } from 'renflow.runner'
+import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter } from 'renflow.runner'
 
 import type { NodeMetadata, VueFlowWorkflow } from 'renflow.runner'
 import type { Node, Edge } from '@vue-flow/core'
@@ -291,35 +291,12 @@ onMounted(async () => {
 
             // 如果是 message 触发器，动态根据 RenMessage class 生成输出结构（不包含 description）
             if (workflowInfo.value.triggerName === 'message') {
-                try {
-                    const rm = new RenMessage()
-                    const keys = Object.keys(rm) as string[]
-                    triggerMeta.outputSchema = keys.map(k => {
-                        const v = (rm as any)[k]
-                        let t: string = 'any'
-                        if (v === null || v === undefined) {
-                            t = 'any'
-                        } else if (v instanceof Date) {
-                            t = 'string'
-                        } else if (Array.isArray(v)) {
-                            t = 'array'
-                        } else {
-                            const typ = typeof v
-                            if (typ === 'string') t = 'string'
-                            else if (typ === 'number') t = 'number'
-                            else if (typ === 'boolean') t = 'boolean'
-                            else if (typ === 'object') t = 'object'
-                            else t = 'any'
-                        }
-                        return { key: k, label: k, type: t }
-                    })
-                } catch (e) {
-                    triggerMeta.outputSchema = [
-                        { key: 'messageId', label: 'messageId', type: 'string' },
-                        { key: 'message', label: 'message', type: 'any' },
-                        { key: 'time', label: 'time', type: 'string' }
-                    ]
-                }
+                // 为 message 触发器使用通用输出结构（避免实例化抽象类）
+                triggerMeta.outputSchema = [
+                    { key: 'messageId', label: 'messageId', type: 'string' },
+                    { key: 'message', label: 'message', type: 'any' },
+                    { key: 'time', label: 'time', type: 'string' }
+                ]
             }
 
             nodes.value = [{
@@ -573,17 +550,8 @@ onMounted(async () => {
 
                 if (id !== workflowInfo.value.id) return
 
-                // 回复已接管，ListView 会根据此回应跳过本地执行
+                // 将当前编辑器中的执行数据返回给 ListView 由其进行执行
                 try {
-                    const { emit } = await import('@tauri-apps/api/event')
-                    void emit('workflow:execute:handled', { id })
-                } catch (e) {
-                    logger.add(LogType.ERR, '发射 workflow:execute:handled 事件失败', e)
-                }
-
-                // 在编辑窗口内执行工作流，使用 minDelay=1000
-                try {
-                    // 构建执行数据
                     if (!workflowInfo.value.id) return
                     const vueFlowWorkflow: VueFlowWorkflow = {
                         id: workflowInfo.value.id || `workflow_temp_${Date.now()}`,
@@ -601,52 +569,11 @@ onMounted(async () => {
 
                     const executionData = workflowConverter.convert(vueFlowWorkflow)
 
-                    runWorkflow(executionData, triggerP, {
-                        minDelay: 1000,
-                        timeout: 60000
-                    }, {
-                        onNodeStart: async (nodeId: string) => {
-                            // 本窗口可视化
-                            highlightNode(nodeId, true)
-                            // 广播节点开始事件供其他窗口显示
-                            try {
-                                const { emit } = await import('@tauri-apps/api/event')
-                                void emit('workflow:execute:nodeStart', { id, nodeId })
-                            } catch (e) {
-                                logger.add(LogType.ERR, '发射 workflow:execute:nodeStart 事件失败', e)
-                            }
-                        },
-                        onNodeComplete: async (nodeId: string) => {
-                        highlightNode(nodeId, false)
-                        try {
-                            const { emit } = await import('@tauri-apps/api/event')
-                            void emit('workflow:execute:nodeComplete', { id, nodeId })
-                        } catch (e) {
-                            logger.add(LogType.ERR, '发射 workflow:execute:nodeComplete 事件失败', e)
-                        }
-                        },
-                        onNodeError: async (nodeId: string, error: any) => {
-                            highlightNode(nodeId, false)
-                            try {
-                                const { emit } = await import('@tauri-apps/api/event')
-                                void emit('workflow:execute:nodeError', { id, nodeId, error: String(error) })
-                            } catch (e) {
-                                logger.add(LogType.ERR, '发射 workflow:execute:nodeError 事件失败', e)
-                            }
-                        },
-                        onWorkflowComplete: async (workflowResult: any) => {
-                            try {
-                                const { emit } = await import('@tauri-apps/api/event')
-                                void emit('workflow:execute:complete', { id, success: !!workflowResult.success, logs: workflowResult.logs })
-                            } catch (e) {
-                                logger.add(LogType.ERR, '发射 workflow:execute:complete 事件失败', e)
-                            }
-                            // 清理高亮
-                            for (const n of nodes.value) updateNode(n.id, { class: '' })
-                        }
-                    })
+                    const { emit } = await import('@tauri-apps/api/event')
+                    // 返回 executionData 与触发数据，ListView 会接收并执行
+                    void emit('workflow:execute:handled', { id, executionData, data: triggerP })
                 } catch (e) {
-                    logger.add(LogType.ERR, '编辑器内执行失败', e)
+                    logger.add(LogType.ERR, '向 ListView 返回执行数据失败', e)
                 }
             })
             // 监听节点开始
@@ -680,7 +607,7 @@ onMounted(async () => {
                 if (payload.id !== workflowInfo.value.id) return
                 const nodeId = payload.nodeId
                 highlightNode(nodeId, false)
-                toast.error(`节点执行错误: ${payload.error || ''}`)
+                toast.error(`节点执行错误 > ${payload.error || ''}`)
             })
 
             // 监听执行开始/完成
@@ -754,7 +681,11 @@ const selectedNodeInputs = computed(() => {
         const metadata = incomer.data?.metadata
         if (metadata?.outputSchema && Array.isArray(metadata.outputSchema)) {
             for (const f of metadata.outputSchema) {
-                res.push({ label: `${incomer.data?.label || incomer.id}.${f.label}`, key: `${incomer.id}.${f.key}`, type: f.type })
+                if(f.label != f.key) {
+                    res.push({ label: `${f.label}(${f.key})`, key: `${f.key}`, type: f.type })
+                } else {
+                    res.push({ label: `${f.key}`, key: `${f.key}`, type: f.type })
+                }
             }
         }
     }

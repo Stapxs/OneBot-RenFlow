@@ -130,8 +130,9 @@ defineEmits(['updateNodeInternals'])
     <div class="handle-label handle-label-false" />
 
     <!-- 设置面板弹窗 -->
-    <NodeSettingsPanel v-if="showSettingsPanel"
+    <NodeSettingsPanel
         v-model="paramValues"
+        :pan-show="showSettingsPanel"
         :params="params"
         :node-id="props.id"
         @update:model-value="updateSettings"

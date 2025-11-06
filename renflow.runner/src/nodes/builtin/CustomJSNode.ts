@@ -16,7 +16,8 @@ export class CustomJSNode extends BaseNode {
             {
                 key: 'settings',
                 label: '',
-                type: 'settings'
+                type: 'settings',
+                required: true
             },
             {
                 key: 'code',

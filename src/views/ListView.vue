@@ -83,6 +83,7 @@ import { Logger, LogType, PopInfo, PopType } from '@app/functions/base'
 import { connectorManager, RenMessage, runWorkflowByTrigger, type VueFlowWorkflow, WorkflowConverter, type WorkflowExecution } from 'renflow.runner'
 
 import WorkflowDialog from '@app/components/WorkflowDialog.vue'
+import type { BaseBotAdapter } from 'renflow.runner/dist/connectors'
 
 const router = useRouter()
 const popInfo = new PopInfo()
@@ -268,18 +269,29 @@ onMounted(async () => {
     // 创建一个临时 bot 测试
     const adapterId = 'napcat'
     const adapter = await connectorManager.createBotAdapter('napcat', {
+        url: 'ws://127.0.0.1:3001',
+        token: '12345'
     }, adapterId)
 
     // 本地订阅适配器事件
     adapter.on(['message', 'message_mine'], (p: RenMessage) => {
         const eventName = p.isMine ? 'message_mine' : 'message'
-        runFlow(p, workflowList.value.filter(w => w.triggerName === eventName && w.enabled))
+        runFlow(p, adapter, workflowList.value.filter(w => w.triggerName === eventName && w.enabled))
+    })
+    adapter.on('connect', () => {
+        logger.add(LogType.INFO, `适配器已连接: ${adapterId}`)
+    })
+    adapter.on('disconnect', () => {
+        logger.add(LogType.ERR, `适配器已断开: ${adapterId}`)
+    })
+    adapter.on('error', (err: any) => {
+        logger.add(LogType.ERR, `适配器错误: ${adapterId}`, err)
     })
 
     await adapter.connect()
 })
 
-const runFlow = async (data: any, workflowList: WorkflowListItem[]) => {
+const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowListItem[]) => {
     const converter = new WorkflowConverter()
     // 装载所有 workflowList
     const loadedWorkflows: WorkflowExecution[] = []
@@ -292,7 +304,7 @@ const runFlow = async (data: any, workflowList: WorkflowListItem[]) => {
         }
     }
 
-    runWorkflowByTrigger(loadedWorkflows, data, { timeout: 60000 }, {
+    runWorkflowByTrigger(loadedWorkflows, data, { timeout: 60000, bot }, {
         onWorkflowStart: async (workflowId: string): Promise<boolean> => {
             // 如果不是桌面模式，编辑窗口不会接管执行，应当允许工作流继续执行
             if (!backend.isDesktop()) return true
@@ -300,12 +312,12 @@ const runFlow = async (data: any, workflowList: WorkflowListItem[]) => {
             try {
                 const { emit, listen } = await import('@tauri-apps/api/event')
 
-                // 监听一次性的 handled 事件（短超时）
-                const handledPromise = new Promise<boolean>((resolve) => {
+                // 监听一次性的 handled 事件（短超时） — 如果接收到 executionData，ListView 将执行该数据
+                const handledPromise = new Promise<any>((resolve) => {
                     const unlistenPromise = (listen as any)('workflow:execute:handled', (evt: any) => {
                         const payload = evt?.payload || {}
                         if (payload.id === workflowId) {
-                            resolve(true)
+                            resolve(payload)
                         }
                     })
 
@@ -324,10 +336,58 @@ const runFlow = async (data: any, workflowList: WorkflowListItem[]) => {
                 // 发出请求，编辑窗口若打开且匹配会在收到后处理并发回 handled
                 // 带上触发数据 data，便于编辑窗口在本地重放执行
                 void emit('workflow:execute:request',
-                    { id: workflowId, data, type: data.constructor.name })
-                const handled = await handledPromise
+                    { id: workflowId, data, type: Object.getPrototypeOf(data.constructor).name || data.constructor.name })
+                const handledPayload = await handledPromise
 
-                return !handled
+                // 如果编辑窗口返回了 executionData，则本窗口负责执行该执行数据并跳过原本的本地执行
+                if (handledPayload && handledPayload.executionData) {
+                    try {
+                        // 执行来自编辑器的执行数据（只执行该工作流）
+                        await runWorkflowByTrigger([handledPayload.executionData], data, { timeout: 60000, bot }, {
+                            onNodeStart: async (wfId: string, nodeId: string) => {
+                                try {
+                                    const { emit } = await import('@tauri-apps/api/event')
+                                    void emit('workflow:execute:nodeStart', { id: wfId, nodeId })
+                                } catch (e) {
+                                    logger.add(LogType.ERR, '发射 workflow:execute:nodeStart 事件失败', e)
+                                }
+                            },
+                            onNodeComplete: async (wfId: string, nodeId: string) => {
+                                try {
+                                    const { emit } = await import('@tauri-apps/api/event')
+                                    void emit('workflow:execute:nodeComplete', { id: wfId, nodeId })
+                                } catch (e) {
+                                    logger.add(LogType.ERR, '发射 workflow:execute:nodeComplete 事件失败', e)
+                                }
+                            },
+                            onNodeError: async (wfId: string, nodeId: string, error: any) => {
+                                try {
+                                    const { emit } = await import('@tauri-apps/api/event')
+                                    void emit('workflow:execute:nodeError', { id: wfId, nodeId, error: (error as unknown as Error).message })
+                                } catch (e) {
+                                    logger.add(LogType.ERR, '发射 workflow:execute:nodeError 事件失败', e)
+                                }
+                            },
+                            onWorkflowComplete: async (wfId: string, workflowResult: any) => {
+                                try {
+                                    const { emit } = await import('@tauri-apps/api/event')
+                                    void emit('workflow:execute:complete', { id: wfId, success: !!workflowResult.success, logs: workflowResult.logs })
+                                } catch (e) {
+                                    logger.add(LogType.ERR, '发射 workflow:execute:complete 事件失败', e)
+                                }
+                            }
+                        })
+                    } catch (e) {
+                        logger.add(LogType.ERR, '执行来自编辑器的工作流失败', e)
+                    }
+
+                    return false
+                }
+
+                // 如果 handledPayload 为 true（编辑器接管但未返回 executionData），表示编辑窗口要执行 — 跳过本地执行
+                if (handledPayload === true) return false
+
+                return true
             } catch (e) {
                 logger.add(LogType.ERR, '询问编辑窗口接管执行失败', e)
                 // 出错时默认允许执行
@@ -358,7 +418,7 @@ const runFlow = async (data: any, workflowList: WorkflowListItem[]) => {
             try {
                 if (backend.isDesktop()) {
                     const { emit } = await import('@tauri-apps/api/event')
-                    void emit('workflow:execute:nodeError', { id: workflowId, nodeId, error: String(error) })
+                    void emit('workflow:execute:nodeError', { id: workflowId, nodeId, error: (error as unknown as Error).message })
                 }
             } catch (e) {
                 logger.add(LogType.ERR, '发射 workflow:execute:nodeError 事件失败', e)

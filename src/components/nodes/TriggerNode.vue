@@ -50,7 +50,7 @@ const params = [
     { key: 'regexExpression', label: '正则表达式', type: 'input', placeholder: '请输入正则表达式', visibleWhen: { key: 'filterMode', value: 'regex' } },
     { key: 'prefix', label: '前缀', type: 'input', placeholder: '命令前缀（例如： /）', visibleWhen: { key: 'filterMode', value: 'shell' } },
     { key: 'shellCommand', label: '命令', type: 'input', placeholder: '命令（例如: mcinfo config）', visibleWhen: { key: 'filterMode', value: 'shell' },
-        tip: 'shell 命令解析遵守 shell 规范格式（例如：/mcinfo config --address 127.0.0.1 -f），将从前往后匹配，忽略参数。如填写 mcinfo 将会被触发 mcinfo、mcinfo config、mcinfo config --address 127.0.0.1' },
+        tip: 'shell 命令解析遵守 shell 规范格式（例如：/mcinfo config --address 127.0.0.1 -f），将从前往后匹配，忽略参数。如：填写 mcinfo 将会被以下命令触发 mcinfo、mcinfo config、mcinfo config --address 127.0.0.1' },
     { key: 'messageType', label: '消息类型', type: 'select', options: [] as any[], visibleWhen: { key: 'filterParam', value: 'message.[*].type' } },
     { key: 'targetId', label: '来源 ID', type: 'input', placeholder: '请输入来源 ID', visibleWhen: { key: 'filterParam', value: 'targetId' } },
     { key: 'includeSelf', label: '包含自己', type: 'switch', defaultValue: false }
@@ -106,12 +106,16 @@ function updateSettings(newValues: Record<string, any>) {
     <div class="trigger-node" @click.stop>
         <div class="trigger-type">{{ triggerType }}</div>
         <div class="trigger-name">{{ triggerName }}</div>
-        <button class="settings-btn" @click.stop="openSettings"><span>过滤设置</span>⚙</button>
+        <button class="settings-btn" @click.stop="openSettings">
+            <span>过滤设置</span>
+            <font-awesome-icon :icon="['fas', 'cog']" />
+        </button>
     </div>
 
     <!-- 使用通用设置面板 -->
-    <NodeSettingsPanel v-if="showSettings"
+    <NodeSettingsPanel
         v-model="localValues"
+        :pan-show="showSettings"
         :params="params"
         :node-id="props.id"
         @update:model-value="updateSettings"
@@ -161,5 +165,9 @@ function updateSettings(newValues: Record<string, any>) {
     font-size: 0.75rem;
     text-align: left;
     flex: 1;
+}
+.settings-btn > svg {
+    font-size: 0.75rem;
+    color: var(--color-font);
 }
 </style>

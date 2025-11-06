@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import type { NodeParam } from 'renflow.runner'
-import { ref, computed } from 'vue'
+import { ref, computed, markRaw, defineAsyncComponent } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import ConditionParam from './ConditionParam.vue'
+import SettingsLoading from './setting-pan/SettingsLoading.vue'
 
 interface Props {
+    panShow: boolean
     nodeId: string
     params: NodeParam[]
     modelValue: Record<string, any>
+    nodeName?: string
+    templateName?: string
+    description?: string
 }
 
 const props = defineProps<Props>()
@@ -25,6 +30,17 @@ const localValues = ref<Record<string, any>>({ ...props.modelValue })
 const visibleTips = ref<Record<string, boolean>>({})
 const toggleTip = (key: string) => {
     visibleTips.value[key] = !visibleTips.value[key]
+}
+
+let template = null as any
+if(props.templateName) {
+    template = markRaw(
+        defineAsyncComponent({
+            loader: () => import(`./setting-pan/${props.templateName}.vue`),
+            loadingComponent: SettingsLoading,
+            delay: 100
+        }),
+    )
 }
 
 // 判断参数是否可见（支持 param.visibleWhen ）
@@ -99,80 +115,91 @@ const cancelSettings = () => {
 
 <template>
     <Teleport to="body">
-        <div class="node-settings-overlay" @click.self="cancelSettings">
-            <div class="node-settings-panel ss-card">
-                <div class="settings-header">
-                    <h3>节点设置</h3>
-                    <button title="关闭" class="close-btn" @click="cancelSettings">
-                        <font-awesome-icon :icon="['fas', 'times']" />
-                    </button>
-                </div>
+        <Transition name="panel">
+            <div v-if="panShow" class="node-settings-overlay" @click.self="cancelSettings">
+                <div class="node-settings-panel ss-card">
+                    <div class="settings-header">
+                        <h3>节点设置<span v-if="nodeName">：{{ nodeName }}</span></h3>
+                        <button title="关闭" class="close-btn" @click="cancelSettings">
+                            <font-awesome-icon :icon="['fas', 'times']" />
+                        </button>
+                    </div>
 
-                <div class="settings-body">
-                    <div v-for="param in visibleParams" :key="param.key" class="param-item">
-                        <div v-if="param.type != 'switch'" class="param-label">
-                            <label :class="{ required: param.required }">{{ param.label }}</label>
-                            <button v-if="paramTip(param)" class="info-btn" aria-label="info"
-                                @click.stop.prevent="toggleTip(param.key)">
-                                <font-awesome-icon :icon="['fas', 'info-circle']" />
-                            </button>
-                            <div v-if="paramTip(param)" class="tip-popup" :class="{ visible: visibleTips[param.key] }">
-                                {{ paramGetTip(param) }}
-                            </div>
-                        </div>
+                    <div v-if="description" class="settings-desc" v-html="description" />
 
-                        <!-- input 类型 -->
-                        <input v-if="param.type === 'input'" type="text" :placeholder="param.placeholder"
-                            :value="localValues[param.key]"
-                            @input="updateParam(param.key, ($event.target as HTMLInputElement).value)">
-
-                        <!-- number 类型 -->
-                        <input v-else-if="param.type === 'number'" type="number" :placeholder="param.placeholder"
-                            :value="localValues[param.key]"
-                            @input="updateParam(param.key, Number(($event.target as HTMLInputElement).value))">
-
-                        <!-- textarea 类型 -->
-                        <textarea v-else-if="param.type === 'textarea'" rows="4" :placeholder="param.placeholder"
-                            :value="localValues[param.key]"
-                            @input="updateParam(param.key, ($event.target as HTMLTextAreaElement).value)" />
-
-                        <!-- select 类型 -->
-                        <select v-else-if="param.type === 'select'" :value="localValues[param.key]"
-                            @change="updateParam(param.key, ($event.target as HTMLSelectElement).value)">
-                            <option v-for="option in param.options" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                            </option>
-                        </select>
-
-                        <!-- switch 类型 -->
-                        <div v-else-if="param.type === 'switch'" class="switch-container">
-                            <label :class="{ required: param.required }">
-                                {{ param.label }}
-                            </label>
-                            <label class="ss-switch" @mousedown.stop @pointerdown.stop>
-                                <input v-model="localValues[param.key]"
-                                    type="checkbox"
-                                    @change="updateParam(param.key, ($event.target as HTMLInputElement).checked)">
-                                <div>
-                                    <div />
+                    <div v-if="!template" class="settings-body">
+                        <div v-for="param in visibleParams" :key="param.key" class="param-item">
+                            <div v-if="param.type != 'switch'" class="param-label">
+                                <label :class="{ required: param.required }">{{ param.label }}</label>
+                                <button v-if="paramTip(param)" class="info-btn" aria-label="info"
+                                    @click.stop.prevent="toggleTip(param.key)">
+                                    <font-awesome-icon :icon="['fas', 'info-circle']" />
+                                </button>
+                                <div v-if="paramTip(param)" class="tip-popup" :class="{ visible: visibleTips[param.key] }">
+                                    {{ paramGetTip(param) }}
                                 </div>
-                            </label>
-                        </div>
+                            </div>
 
-                        <!-- condition 类型 -->
-                        <ConditionParam v-else-if="param.type === 'condition'"
-                            :model-value="localValues[param.key] || { parameter: 'input', mode: 'exists', value: '' }"
-                            :available-parameters="availableParameters"
-                            @update:model-value="updateParam(param.key, $event)" />
+                            <!-- input 类型 -->
+                            <input v-if="param.type === 'input'" type="text" :placeholder="param.placeholder"
+                                :value="localValues[param.key]"
+                                @input="updateParam(param.key, ($event.target as HTMLInputElement).value)">
+
+                            <!-- number 类型 -->
+                            <input v-else-if="param.type === 'number'" type="number" :placeholder="param.placeholder"
+                                :value="localValues[param.key]"
+                                @input="updateParam(param.key, Number(($event.target as HTMLInputElement).value))">
+
+                            <!-- textarea 类型 -->
+                            <textarea v-else-if="param.type === 'textarea'" rows="4" :placeholder="param.placeholder"
+                                :value="localValues[param.key]"
+                                @input="updateParam(param.key, ($event.target as HTMLTextAreaElement).value)" />
+
+                            <!-- select 类型 -->
+                            <select v-else-if="param.type === 'select'" :value="localValues[param.key]"
+                                @change="updateParam(param.key, ($event.target as HTMLSelectElement).value)">
+                                <option v-for="option in param.options" :key="option.value" :value="option.value">
+                                    {{ option.label }}
+                                </option>
+                            </select>
+
+                            <!-- switch 类型 -->
+                            <div v-else-if="param.type === 'switch'" class="switch-container">
+                                <label :class="{ required: param.required }">
+                                    {{ param.label }}
+                                </label>
+                                <label class="ss-switch" @mousedown.stop @pointerdown.stop>
+                                    <input v-model="localValues[param.key]"
+                                        type="checkbox"
+                                        @change="updateParam(param.key, ($event.target as HTMLInputElement).checked)">
+                                    <div>
+                                        <div />
+                                    </div>
+                                </label>
+                            </div>
+
+                            <!-- condition 类型 -->
+                            <ConditionParam v-else-if="param.type === 'condition'"
+                                :model-value="localValues[param.key] || { parameter: 'input', mode: 'exists', value: '' }"
+                                :available-parameters="availableParameters"
+                                @update:model-value="updateParam(param.key, $event)" />
+                        </div>
+                    </div>
+                    <div v-else class="settings-body">
+                        <component :is="template"
+                            :node-id="nodeId"
+                            :params="props.params"
+                            :model-value="localValues"
+                            @update:model-value="localValues = $event" />
+                    </div>
+
+                    <div class="settings-footer">
+                        <button class="cancel-btn" @click="cancelSettings">取消</button>
+                        <button class="save-btn" @click="saveSettings">保存</button>
                     </div>
                 </div>
-
-                <div class="settings-footer">
-                    <button class="cancel-btn" @click="cancelSettings">取消</button>
-                    <button class="save-btn" @click="saveSettings">保存</button>
-                </div>
             </div>
-        </div>
+        </Transition>
     </Teleport>
 </template>
 
@@ -191,11 +218,12 @@ const cancelSettings = () => {
 }
 
 .node-settings-panel {
+    background: rgba(var(--color-card-rgb), 0.5);
     box-shadow: 0 0 5px var(--color-shader);
-    background: var(--color-card);
+    backdrop-filter: blur(20px);
     border-radius: 12px;
     min-width: 400px;
-    max-width: 600px;
+    max-width: 90vw;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
@@ -211,7 +239,6 @@ const cancelSettings = () => {
     transition: opacity 0.2s ease-in;
 }
 
-.panel-enter-from,
 .panel-leave-to {
     opacity: 0;
 }
@@ -284,6 +311,13 @@ const cancelSettings = () => {
 .close-btn:hover {
     background: rgba(var(--color-main-rgb), 0.1);
     color: var(--color-font);
+}
+
+.settings-desc {
+    margin: 10px 20px 0 20px;
+    color: var(--color-font-2);
+    border-radius: 7px;
+    font-size: 0.8rem;
 }
 
 .settings-body {
@@ -377,7 +411,8 @@ const cancelSettings = () => {
 }
 
 .settings-footer {
-    background: var(--color-card-1);
+    background: rgba(var(--color-card-1-rgb), 0.5);
+    border-radius: 0 0 7px 7px;
     display: flex;
     justify-content: flex-end;
     gap: 10px;

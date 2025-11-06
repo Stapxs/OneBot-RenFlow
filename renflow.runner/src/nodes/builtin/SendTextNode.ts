@@ -1,5 +1,9 @@
+import { BaseBotAdapter } from '../../connectors/index.js'
+import { RenMessage, RenMessageDataType, RenMessageText } from '../../connectors/adapter/msgTypes.js'
 import { BaseNode } from '../BaseNode.js'
 import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types.js'
+import { NcRenApiData, NcRenApiParamsMessage, NcRenApiResponse } from '../../connectors/adapter/onebot/napcatMsgTypes.js'
+import { plainToInstance } from 'class-transformer'
 
 /**
  * 发送文本消息节点
@@ -50,34 +54,52 @@ export class SendTextNode extends BaseNode {
         params: Record<string, any>,
         context: NodeContext
     ): Promise<NodeExecutionResult> {
-        const text = params.text || '{data.text}'
+        const text = params.text
 
-        // 解析 {data.text} 占位符
-        let messageText = text
-        if (text === '{data.text}' && input) {
-            // 如果是默认占位符且有输入数据，使用输入数据
-            if (typeof input === 'string') {
-                messageText = input
-            } else if (input.text) {
-                messageText = input.text
-            } else {
-                // 尝试转换为字符串
-                messageText = JSON.stringify(input)
+        const bot = this.getGlobal(context, 'bot') as BaseBotAdapter
+        if (!bot || typeof bot.callApiSync !== 'function') {
+            return {
+                success: false,
+                error: 'bot 参数无效'
             }
         }
 
-        context.logger.log(`[发送文本消息] 准备发送: ${messageText}`)
+        const message = this.getGlobal(context, 'trigger') as RenMessage
 
-        // TODO: 实现实际的消息发送逻辑
-        // 这里需要调用 OneBot 协议的发送消息接口
-        // 例如: await backend.call('onebot:sendMessage', { text: messageText, target: ... })
-
-        return {
-            success: true,
-            output: {
-                text: messageText,
-                sent: false, // TODO: 实际发送后改为 true
-                message: '消息发送功能待实现'
+        const messageBody = {
+            type: RenMessageDataType.text,
+            data: new RenMessageText(text)
+        }
+        const id = message.groupId || message.userId
+        if(id == undefined) {
+            return {
+                success: false,
+                error: '消息体异常'
+            }
+        }
+        const action = new NcRenApiData(
+            'send_msg',
+            new NcRenApiParamsMessage(
+                [messageBody],
+                message.messageType === 'group' ? undefined : id,
+                message.messageType === 'group' ? id : undefined
+            )
+        )
+        const data = await bot.callApiSync(action)
+        const res = plainToInstance(NcRenApiResponse, data)
+        if(res.retcode !== 0) {
+            return {
+                success: false,
+                error: `发送消息失败 > 错误码：${res.retcode}，信息：${res.message}`
+            }
+        } else {
+            return {
+                success: true,
+                output: {
+                    text: text,
+                    sent: true,
+                    message: '消息发送成功'
+                }
             }
         }
     }

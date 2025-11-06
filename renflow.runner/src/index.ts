@@ -55,7 +55,7 @@ async function main() {
                     const result = await engine.execute(workflowExecution, null)
 
                     if (!result.success) {
-                        logger.error('工作流执行失败:', result.error)
+                        logger.error('工作流执行失败 > ', result.error)
                         process.exit(2)
                     }
 
@@ -98,7 +98,7 @@ if (isNode && import.meta.url === `file://${process.argv[1]}`) {
 export { Logger, LogLevel } from './utils/logger.js'
 export * from './nodes/index.js'
 export * from './workflow/index.js'
-export * from './types.js'
+export * from './connectors/adapter/msgTypes.js'
 export { connectorManager } from './connectors/index.js'
 
 /**

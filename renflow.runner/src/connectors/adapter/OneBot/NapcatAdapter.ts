@@ -1,8 +1,10 @@
-import { RenMessage } from '../../../types'
+import { RenMessageBodyData, RenMessageDataType } from '../msgTypes'
 import { BaseBotAdapter } from '../BotAdapter'
 import event from '../decorators'
 import type { AdapterMessage, NapcatAdapterOptions } from '../types'
-import { plainToInstance } from 'class-transformer'
+import { instanceToPlain, plainToInstance } from 'class-transformer'
+import { NapcatRenMessage, NcRenApiData, NcRenApiParamsMessage } from './napcatMsgTypes'
+import type { RenApiData } from '../msgTypes'
 
 
 /**
@@ -13,6 +15,7 @@ export class NapcatAdapter extends BaseBotAdapter {
     private ws: any | null = null
     private reconnectAttempts = 0
     private reconnectTimer: any = null
+    private pendingApiResponses: Map<string, { resolve: (v: any) => void, reject: (e: any) => void, timer?: any }> = new Map()
 
     declare options: NapcatAdapterOptions
 
@@ -58,7 +61,8 @@ export class NapcatAdapter extends BaseBotAdapter {
                         resolve()
                     }
 
-                    const onMessage = (data: any) =>  this.emitEvent('get', { data: data, timestamp: Date.now() } as AdapterMessage)
+                    const onMessage = (data: any) =>
+                        this.emitEvent('get', { data: data, timestamp: Date.now() } as AdapterMessage)
 
                     const onClose = () => {
                         this.connected = false
@@ -134,25 +138,36 @@ export class NapcatAdapter extends BaseBotAdapter {
         this.reconnectAttempts = 0
     }
 
-    async send(message: AdapterMessage): Promise<void> {
-        if (!this.ws || !this.connected) throw new Error('NapcatAdapter: not connected')
-        const payload = JSON.stringify(message)
-        if (typeof this.ws.send === 'function') {
-            this.ws.send(payload)
-        } else if (typeof this.ws.send === 'undefined' && typeof this.ws.dispatchEvent === 'function') {
-            (this.ws as any).send(payload)
-        } else {
-            throw new Error('NapcatAdapter: ws send not supported')
-        }
-    }
-
     // 工具方法 ==================================================
 
     private formatMessage(data: any[]) {
         return data.map(item => {
-            // 为什么返回的 type 是 RenMessage[]，但实际是个 RenMessage
-            return plainToInstance(RenMessage, item as { [key: string]: any }, { excludeExtraneousValues: true })
+            return plainToInstance(NapcatRenMessage, item as { [key: string]: any }, { excludeExtraneousValues: true })
         })
+    }
+
+    // 直接通过底层 websocket 发送原始字符串数据，返回 Promise
+    private sendRaw(payload: string): Promise<void> {
+        if (!this.ws) return Promise.reject(new Error('WebSocket not initialized'))
+        try {
+            // 浏览器 WebSocket
+            if (typeof this.ws.send === 'function') {
+                // 如果 send 不支持回调/Promise，则我们无法直接等待成功，只能假定发送成功
+                this.ws.send(payload)
+                return Promise.resolve()
+            }
+            // node 'ws' 包（也使用 send 返回 void 或 callback）
+            if (typeof this.ws.off === 'function' || typeof this.ws.on === 'function') {
+                // 尝试调用 send 并返回已解析的 Promise
+                this.ws.send(payload)
+                return Promise.resolve()
+            }
+            // 兜底
+            this.ws.send(payload)
+            return Promise.resolve()
+        } catch (e) {
+            return Promise.reject(e)
+        }
     }
 
     // 事件实现 ==================================================
@@ -160,6 +175,19 @@ export class NapcatAdapter extends BaseBotAdapter {
     @event('get')
     async get(msg: AdapterMessage) {
         const data = JSON.parse(msg.data)
+        // 优先处理带 echo 的 RPC 响应，配合 callApiSync
+        try {
+            const echo = data?.echo
+            if (echo && this.pendingApiResponses.has(echo)) {
+                const entry = this.pendingApiResponses.get(echo)!
+                try { if (entry.timer) clearTimeout(entry.timer) } catch (e) { /* ignore */ }
+                entry.resolve(data)
+                this.pendingApiResponses.delete(echo)
+                return { ok: true }
+            }
+        } catch (e) {
+            // ignore processing errors and continue
+        }
         // 对原始消息进行拆分二次投递事件
         const msgType = data.post_type === 'notice' ? data.sub_type ?? data.notice_type : data.post_type
         if (msgType == 'message') {
@@ -174,7 +202,80 @@ export class NapcatAdapter extends BaseBotAdapter {
         return { ok: true }
     }
 
+    // 异步调用：接收一个 RenApiData 对象并通过 websocket 发送（不等待响应）
+    public async callApiAsync(message: RenApiData): Promise<any> {
+        if (!this.ws || !this.connected) throw new Error('NapcatAdapter: WebSocket is not connected')
+        const jsonData = instanceToPlain(message as any)
+    await this.sendRaw(JSON.stringify(jsonData))
+        return
+    }
+
+    // 同步调用：接收一个 RenApiData 对象，通过 echo 字段等待服务端响应
+    public callApiSync(message: RenApiData): any {
+        if (!this.ws || !this.connected) throw new Error('NapcatAdapter: WebSocket is not connected')
+
+        // 将 message 转为 plain 对象，并确保 echo 存在
+        const plain = instanceToPlain(message)
+        let echo = plain?.echo
+        if (!echo) {
+            echo = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`
+            plain.echo = echo
+        }
+
+        const payload = JSON.stringify(plain)
+
+        console.log(payload)
+
+        return new Promise((resolve, reject) => {
+            const timeout = typeof this.options?.syncTimeout === 'number' ? this.options.syncTimeout : 5000
+            const timer = setTimeout(() => {
+                this.pendingApiResponses.delete(echo)
+                reject(new Error(`callApiSync timeout waiting for echo=${echo}`))
+            }, timeout)
+            this.pendingApiResponses.set(echo, { resolve, reject, timer })
+
+            // 发送
+            try {
+                this.sendRaw(payload).catch((err: any) => {
+                    try {
+                        if (this.pendingApiResponses.has(echo)) {
+                            const e = this.pendingApiResponses.get(echo)!
+                            if (e.timer) clearTimeout(e.timer)
+                            e.reject(err)
+                            this.pendingApiResponses.delete(echo)
+                        }
+                    } catch (_err) { /* ignore */ }
+                })
+            } catch (e: any) {
+                if (this.pendingApiResponses.has(echo)) {
+                    const entry = this.pendingApiResponses.get(echo)!
+                    if (entry.timer) clearTimeout(entry.timer)
+                    entry.reject(e)
+                    this.pendingApiResponses.delete(echo)
+                }
+            }
+        })
+    }
+
     // 接口实现 ==================================================
+
+    async apiSendMessage(
+        message: {type: RenMessageDataType, data: RenMessageBodyData}[],
+        id: number,
+        type: 'group' | 'private'
+    ): Promise<void> {
+        const action = new NcRenApiData(
+            'send_message',
+            new NcRenApiParamsMessage(
+                message,
+                type === 'group' ? undefined : id,
+                type === 'group' ? id : undefined
+            ), 'test'
+        )
+        // 逆向生成 json
+        const jsonData = instanceToPlain<NcRenApiData>(action)
+        await this.sendRaw(JSON.stringify(jsonData))
+    }
 }
 
 export default NapcatAdapter

@@ -49,17 +49,24 @@ const availableParameters = computed(() => {
     return parameters
 })
 
-// 判断是否需要显示设置按钮
-// 1. 参数超过3个
-// 2. 包含 settings 类型的参数
+// 判断是否需要显示设置按钮 / 是否只显示设置按钮
+const settingsParam = computed(() => params.value.find(p => p.type === 'settings'))
+const settingsRequired = computed(() => !!settingsParam.value && settingsParam.value.required === true)
+const nonSettingsCount = computed(() => params.value.filter(p => p.type !== 'settings').length)
+
+// 是否显示设置按钮（若存在 settings 参数或参数过多则显示）
 const shouldShowSettings = computed(() => {
-    const paramList = params.value.filter(p => p.type !== 'settings')
-    return paramList.length > 3 || params.value.some(p => p.type === 'settings')
+    return !!settingsParam.value || nonSettingsCount.value > 5
 })
 
-// 显示在节点上的参数（如果有设置按钮则不显示参数）
+// 是否隐藏节点上的参数（只有在 settings.required 为 true 或 参数过多 时隐藏）
+const hideParams = computed(() => {
+    return settingsRequired.value || nonSettingsCount.value > 5
+})
+
+// 显示在节点上的参数（如果需要隐藏则不显示参数）
 const displayParams = computed(() => {
-    if (shouldShowSettings.value) {
+    if (hideParams.value) {
         return []
     }
     return params.value.filter(p => p.type !== 'settings')
@@ -134,14 +141,6 @@ defineEmits(['updateNodeInternals'])
         </header>
         <div v-else>{{ data.label }}</div>
 
-        <!-- 设置按钮 -->
-        <div v-if="shouldShowSettings" class="node-settings-btn">
-            <button title="节点设置" @click.stop="openSettings">
-                <span>节点设置</span>
-                <font-awesome-icon :icon="['fas', 'cog']" />
-            </button>
-        </div>
-
         <!-- 参数列表 -->
         <div v-if="displayParams.length > 0" class="node-params">
             <div v-for="param in displayParams" :key="param.key" class="param-item">
@@ -214,6 +213,14 @@ defineEmits(['updateNodeInternals'])
             </div>
         </div>
 
+        <!-- 设置按钮 -->
+        <div v-if="shouldShowSettings" class="node-settings-btn">
+            <button title="节点设置" @click.stop="openSettings">
+                <span>节点设置</span>
+                <font-awesome-icon :icon="['fas', 'cog']" />
+            </button>
+        </div>
+
         <div v-if="isDev" class="node-tip">
             <span>{{ props.id }}</span>
         </div>
@@ -222,15 +229,16 @@ defineEmits(['updateNodeInternals'])
     <Handle v-if="data.type != 'end'" type="source" :position="Position.Right" />
 
     <!-- 设置面板弹窗 -->
-    <Transition name="panel">
-        <NodeSettingsPanel
-            v-if="showSettingsPanel"
-            v-model="paramValues"
-            :node-id="props.id"
-            :params="settingsParams"
-            @update:model-value="updateSettings"
-            @close="closeSettings" />
-    </Transition>
+    <NodeSettingsPanel
+        v-model="paramValues"
+        :pan-show="showSettingsPanel"
+        :node-id="props.id"
+        :params="settingsParams"
+        :node-name="data.label"
+        :template-name="data.metadata?.settingsComponent"
+        :description="props.data?.metadata?.fullDescription"
+        @update:model-value="updateSettings"
+        @close="closeSettings" />
 </template>
 
 <style scoped>
@@ -319,7 +327,7 @@ defineEmits(['updateNodeInternals'])
 
 /* 设置按钮 */
 .node-settings-btn {
-    margin-top: 8px;
+    margin-top: 10px;
 }
 
 .node-settings-btn button {
@@ -327,7 +335,7 @@ defineEmits(['updateNodeInternals'])
     background: rgba(var(--color-main-rgb), 0.1);
     border: 1px solid rgba(var(--color-main-rgb), 0.3);
     border-radius: 6px;
-    padding: 0;
+    padding: 0 5px 0 0;
     color: var(--color-font);
     font-size: 0.8rem;
     cursor: pointer;
@@ -347,10 +355,6 @@ defineEmits(['updateNodeInternals'])
 .node-settings-btn button:hover {
     background: rgba(var(--color-main-rgb), 0.2);
     border-color: rgba(var(--color-main-rgb), 0.5);
-}
-
-.node-settings-btn button:active {
-    transform: scale(0.98);
 }
 
 .node-settings-btn svg {

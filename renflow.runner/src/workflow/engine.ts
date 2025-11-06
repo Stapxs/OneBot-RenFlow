@@ -76,6 +76,8 @@ export interface ExecutionOptions {
     timeout?: number
     /** 状态回调 */
     callback?: ExecutionCallback
+    /** 初始全局变量（会被复制到 ExecutionContext.globalState），可在此传入 bot 等对象 */
+    initialGlobals?: Record<string, any>
 }
 
 export class WorkflowEngine {
@@ -109,6 +111,19 @@ export class WorkflowEngine {
             logs: []
         }
 
+        // 如果有初始全局变量，注入到 globalState
+        if (options.initialGlobals) {
+            for (const [k, v] of Object.entries(options.initialGlobals)) {
+                context.globalState.set(k, v)
+            }
+        }
+
+        // 请通过 options.initialGlobals 传入 bot 或其他初始全局对象，例如: { initialGlobals: { bot: myBot } }
+        // 如果执行时包含触发数据，把触发数据写入全局存储，键名为 'trigger'
+        if (context.triggerData !== undefined && context.triggerData !== null) {
+            context.globalState.set('trigger', context.triggerData)
+        }
+
         const executePromise = this.executeInternal(workflow, context, options)
 
         // 如果设置了超时，使用 Promise.race
@@ -121,7 +136,7 @@ export class WorkflowEngine {
                 return await Promise.race([executePromise, timeoutPromise])
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error)
-                this.logger.error(`工作流执行失败: ${errorMessage}`)
+                this.logger.error(`工作流执行失败 > ${errorMessage}`)
 
                 const result: WorkflowExecutionResult = {
                     success: false,
@@ -172,17 +187,14 @@ export class WorkflowEngine {
             await options.callback?.onWorkflowComplete?.(result)
             return result
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error)
-            this.logger.error(`工作流执行失败: ${errorMessage}`)
+            this.logger.error(`工作流执行失败 > ${error as unknown as Error}`)
 
             const result: WorkflowExecutionResult = {
                 success: false,
-                error: errorMessage,
                 logs: context.logs,
                 finalState: context.globalState
             }
 
-            await options.callback?.onWorkflowComplete?.(result)
             return result
         }
     }
@@ -204,62 +216,69 @@ export class WorkflowEngine {
 
         const startTime = Date.now()
 
-        try {
-            this.logger.info(`执行节点: ${nodeId} (${node.type})`)
+        this.logger.info(`执行节点: ${nodeId} (${node.type})`)
 
-            // 触发节点开始回调
-            await options.callback?.onNodeStart?.(nodeId, node.type)
+        // 触发节点开始回调
+        await options.callback?.onNodeStart?.(nodeId, node.type)
 
-            // 创建节点上下文
-            const nodeContext: NodeContext = {
-                nodeId: node.id,
-                globalState: context.globalState,
-                logger: {
-                    log: (...args: any[]) => {
-                        this.addLog(context, nodeId, 'log', args.join(' '))
-                    },
-                    error: (...args: any[]) => {
-                        this.addLog(context, nodeId, 'error', args.join(' '))
-                    },
-                    warn: (...args: any[]) => {
-                        this.addLog(context, nodeId, 'warn', args.join(' '))
-                    }
+        // 创建节点上下文
+        const nodeContext: NodeContext = {
+            nodeId: node.id,
+            nodeType: node.type,
+            globalState: context.globalState,
+            logger: {
+                log: (...args: any[]) => {
+                    this.addLog(context, nodeId, 'log', args.join(' '))
+                },
+                error: (...args: any[]) => {
+                    this.addLog(context, nodeId, 'error', args.join(' '))
+                },
+                warn: (...args: any[]) => {
+                    this.addLog(context, nodeId, 'warn', args.join(' '))
                 }
             }
+        }
 
+        let result: NodeExecutionResult
+
+        try {
             // 执行节点
-            const result = await this.nodeManager.executeNode(
+            result = await this.nodeManager.executeNode(
+                node.id,
                 node.type,
                 input,
                 node.params,
                 nodeContext
             )
-
-            // 记录执行结果
-            if (!result.success) {
-                throw new Error(`节点执行失败: ${result.error}`)
-            }
-
-            // 计算延迟时间
-            const elapsed = Date.now() - startTime
-            const minDelay = options.minDelay || 0
-            if (minDelay > elapsed) {
-                await this.delay(minDelay - elapsed)
-            }
-
-            this.logger.info(`节点执行成功: ${nodeId}`)
-
-            // 触发节点完成回调
-            await options.callback?.onNodeComplete?.(nodeId, result)
-
-            // 执行下一个节点
-            await this.executeNextNodes(node, result, workflow, context, options)
         } catch (error) {
             // 触发节点错误回调
-            const err = error instanceof Error ? error : new Error(String(error))
+            const err = error as unknown as Error
             await options.callback?.onNodeError?.(nodeId, err)
             throw error
         }
+
+        // 记录执行结果
+        if (!result.success) {
+            // 触发节点错误回调
+            const err = new Error(`节点执行失败 > ${result.error}`)
+            await options.callback?.onNodeError?.(nodeId, err)
+            throw err
+        }
+
+        // 计算延迟时间
+        const elapsed = Date.now() - startTime
+        const minDelay = options.minDelay || 0
+        if (minDelay > elapsed) {
+            await this.delay(minDelay - elapsed)
+        }
+
+        this.logger.info(`节点执行成功: ${nodeId}`)
+
+        // 触发节点完成回调
+        await options.callback?.onNodeComplete?.(nodeId, result)
+
+        // 执行下一个节点
+        await this.executeNextNodes(node, result, workflow, context, options)
     }
 
     /**

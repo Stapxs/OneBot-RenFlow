@@ -64,6 +64,8 @@ export interface NodeMetadata {
     name: string
     /** 节点描述 */
     description: string
+    /** 节点完整描述 */
+    fullDescription?: string
     /** 节点分类（用于 UI 展示分组） */
     category: NodeCategory
     /** 节点参数配置 */
@@ -74,6 +76,8 @@ export interface NodeMetadata {
     isCustom?: boolean
     /** 节点图标（可选） */
     icon?: string
+    /** 可选：节点专属设置组件名（放在前端 components 目录下的组件文件名，不含扩展名） */
+    settingsComponent?: string
 }
 
 /**
@@ -82,6 +86,8 @@ export interface NodeMetadata {
 export interface NodeContext {
     /** 节点 ID */
     nodeId: string
+    /** 节点类型 */
+    nodeType: string
     /** 全局状态（可用于节点间共享数据） */
     globalState: Map<string, any>
     /** 日志记录器 */

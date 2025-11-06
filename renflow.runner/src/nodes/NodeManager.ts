@@ -40,6 +40,19 @@ export class NodeManager {
      */
     private loadBuiltinNodes() {
         for (const node of builtinNodes) {
+            // 确保参数列表存在
+            if (!node.metadata.params) node.metadata.params = []
+
+            // 为所有节点注入一个可配置的 "输出到全局" 开关，避免重复注入
+            if (!node.metadata.params.find(p => p.key === 'outputToGlobal')) {
+                node.metadata.params.push({
+                    key: 'outputToGlobal',
+                    label: '输出到全局',
+                    type: 'switch',
+                    defaultValue: true
+                })
+            }
+
             this.nodes.set(node.metadata.id, node)
         }
     }
@@ -82,16 +95,17 @@ export class NodeManager {
      */
     async executeNode(
         nodeId: string,
+        nodeType: string,
         input: any,
         params: Record<string, any>,
         context?: Partial<NodeContext>
     ): Promise<NodeExecutionResult> {
-        const node = this.nodes.get(nodeId)
+        const node = this.nodes.get(nodeType)
 
         if (!node) {
             return {
                 success: false,
-                error: `节点不存在: ${nodeId}`
+                error: `节点不存在: ${nodeType}`
             }
         }
 
@@ -100,6 +114,7 @@ export class NodeManager {
         // 构建完整的执行上下文
         const fullContext: NodeContext = {
             nodeId,
+            nodeType,
             globalState: context?.globalState || new Map(),
             logger: context?.logger || {
                 log: (...args) => console.log(...args),

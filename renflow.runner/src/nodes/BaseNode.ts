@@ -1,3 +1,4 @@
+import { Logger } from '..'
 import type { NodeMetadata, NodeContext, NodeExecutionResult } from './types'
 
 /**
@@ -6,6 +7,66 @@ import type { NodeMetadata, NodeContext, NodeExecutionResult } from './types'
 export abstract class BaseNode {
     /** 节点元数据 */
     abstract metadata: NodeMetadata
+
+    logger = new Logger('BaseNode')
+
+    /**
+     * 从全局存储读取值
+     * @param context 节点执行上下文
+     * @param key 键
+     * @param defaultValue 默认值（当不存在时返回）
+     */
+    protected getGlobal(context: NodeContext, key: string, defaultValue?: any): any {
+        try {
+            if (!context || !context.globalState) return defaultValue
+            return context.globalState.has(key) ? context.globalState.get(key) : defaultValue
+        } catch (_) {
+            return defaultValue
+        }
+    }
+
+    /**
+     * 写入全局存储
+     * @param context 节点执行上下文
+     * @param key 键
+     * @param value 值
+     */
+    protected setGlobal(context: NodeContext, key: string, value: any): void {
+        if (!context) return
+        if (!context.globalState) {
+            // 尽量保证存在一个 Map
+            // eslint-disable-next-line no-param-reassign
+            (context as any).globalState = new Map()
+        }
+        context.globalState.set(key, value)
+    }
+
+    /**
+     * 删除全局存储中的键
+     * @param context 节点执行上下文
+     * @param key 键
+     * @returns 是否删除成功
+     */
+    protected removeGlobal(context: NodeContext, key: string): boolean {
+        if (!context || !context.globalState) return false
+        return context.globalState.delete(key)
+    }
+
+    /**
+     * 判断全局存储是否存在键
+     */
+    protected hasGlobal(context: NodeContext, key: string): boolean {
+        if (!context || !context.globalState) return false
+        return context.globalState.has(key)
+    }
+
+    /**
+     * 清空当前执行上下文的全局存储（谨慎使用）
+     */
+    protected clearGlobal(context: NodeContext): void {
+        if (!context || !context.globalState) return
+        context.globalState.clear()
+    }
 
     /**
      * 执行节点
@@ -27,8 +88,9 @@ export abstract class BaseNode {
      */
     protected validateParams(params: Record<string, any>): string | null {
         for (const paramConfig of this.metadata.params) {
+            if(paramConfig.type == 'settings') continue
             if (paramConfig.required && !params[paramConfig.key]) {
-                return `参数 "${paramConfig.label}" 是必填项`
+                return `参数 "${paramConfig.label} (${paramConfig.key})" 是必填项`
             }
         }
         return null
@@ -57,12 +119,37 @@ export abstract class BaseNode {
             }
 
             // 执行节点
-            return await this.execute(input, params, context)
+            const result = await this.execute(input, params, context)
+
+            // 当节点配置了 outputToGlobal 时，把输出写入全局变量，键名为节点 id（合并存在数据）
+            try {
+                if (result && result.success && params && params.outputToGlobal) {
+                    const nodeKey = context.nodeId
+                    let existing: any = {}
+                    if (context.globalState && context.globalState.has(nodeKey)) {
+                        existing = context.globalState.get(nodeKey)
+                    }
+
+                    // 如果已有值不是对象，则覆盖为对象
+                    const base = existing && typeof existing === 'object' ? existing : {}
+
+                    const newVal = {
+                        ...base,
+                        ...result.output
+                    }
+
+                    this.setGlobal(context, nodeKey, newVal)
+                }
+            } catch (_err) {
+                // 忽略写入全局时可能发生的错误，保持节点主流程不受影响
+            }
+
+            return result
         } catch (error) {
             context.logger.error(this.metadata.name, error)
             return {
                 success: false,
-                error: error instanceof Error ? error.message : String(error)
+                error: (error as unknown as Error).message || '未知错误'
             }
         }
     }
