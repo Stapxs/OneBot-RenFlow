@@ -13,6 +13,8 @@ export interface NodeParam {
     label: string
     /** 参数类型 */
     type: NodeParamType
+    /** 是否固定显示在节点上（即使参数面板被隐藏） */
+    pin?: boolean
     /** 默认值 */
     defaultValue?: any
     /** 是否必填 */
@@ -68,6 +70,10 @@ export interface NodeMetadata {
     fullDescription?: string
     /** 节点分类（用于 UI 展示分组） */
     category: NodeCategory
+    /** 最大输入连接数，-1 表示不限制 */
+    maxInput?: number
+    /** 最大输出连接数，-1 表示不限制 */
+    maxOutput?: number
     /** 节点参数配置 */
     params: NodeParam[]
     /** 输出数据结构定义 */

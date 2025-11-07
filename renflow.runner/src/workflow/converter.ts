@@ -117,7 +117,7 @@ export class WorkflowConverter {
      */
     private convertNode(node: VueFlowNode, edges: VueFlowEdge[]): ExecutionNode {
         // 获取节点类型
-        const nodeType = this.getNodeType(node)
+        const nodeType = node.data.nodeType
 
         // 获取节点参数
         const params = node.data.params || {}
@@ -128,14 +128,14 @@ export class WorkflowConverter {
         // 构建基础执行节点
         const executionNode: ExecutionNode = {
             id: node.id,
-            type: nodeType,
+            type: nodeType!,
             params,
             next: []
         }
 
         // 处理不同类型的节点
         if (this.isConditionalNode(node)) {
-            // 条件节点（如 if-else）
+            // 条件节点
             const { branches, regularEdges } = this.buildBranches(outgoingEdges)
 
             this.logger.debug(
@@ -155,34 +155,11 @@ export class WorkflowConverter {
     }
 
     /**
-     * 获取节点类型
-     */
-    private getNodeType(node: VueFlowNode): string {
-        // 优先使用 data.nodeType（从 NodeManager 拖拽时设置）
-        if (node.data.nodeType) {
-            return node.data.nodeType
-        }
-
-        // 特殊节点类型映射
-        const typeMap: Record<string, string> = {
-            'ifelse': 'if-else',
-            'note': 'note'
-        }
-
-        if (node.type && typeMap[node.type]) {
-            return typeMap[node.type]
-        }
-
-        // 默认返回节点类型或 ID
-        return node.type || 'unknown'
-    }
-
-    /**
      * 判断是否为条件节点
      */
     private isConditionalNode(node: VueFlowNode): boolean {
-        const nodeType = this.getNodeType(node)
-        return nodeType === 'if-else' || nodeType === 'switch'
+        const nodeType = node.data.nodeType
+        return nodeType === 'ifelse' || nodeType === 'switch'
     }
 
     /**

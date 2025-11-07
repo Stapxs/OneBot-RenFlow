@@ -153,9 +153,9 @@
 </template>
 
 <script setup lang="ts">
-import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter } from 'renflow.runner'
+import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter, BaseRenMessage } from 'renflow.runner'
 
-import type { NodeMetadata, VueFlowWorkflow } from 'renflow.runner'
+import { MergeNode, type NodeMetadata, type VueFlowWorkflow } from 'renflow.runner'
 import type { Node, Edge } from '@vue-flow/core'
 
 import { ref, computed, onMounted, watch } from 'vue'
@@ -178,6 +178,7 @@ import { backend } from '@app/functions/backend'
 import type { WorkflowData } from '@app/functions/workflow'
 import { toast } from '@app/functions/toast'
 import { Logger, LogType } from '@app/functions/base'
+import { getExNodeTypes } from '@app/functions/utils/node'
 
 const route = useRoute()
 const {
@@ -289,14 +290,36 @@ onMounted(async () => {
                 icon: 'bolt'
             }
 
-            // 如果是 message 触发器，动态根据 RenMessage class 生成输出结构（不包含 description）
             if (workflowInfo.value.triggerName === 'message') {
-                // 为 message 触发器使用通用输出结构（避免实例化抽象类）
-                triggerMeta.outputSchema = [
-                    { key: 'messageId', label: 'messageId', type: 'string' },
-                    { key: 'message', label: 'message', type: 'any' },
-                    { key: 'time', label: 'time', type: 'string' }
-                ]
+                try {
+                    const rm = new BaseRenMessage()
+                    const keys = Object.keys(rm) as string[]
+                    triggerMeta.outputSchema = keys.map(k => {
+                        const v = (rm as any)[k]
+                        let t: string = 'any'
+                        if (v === null || v === undefined) {
+                            t = 'any'
+                        } else if (v instanceof Date) {
+                            t = 'string'
+                        } else if (Array.isArray(v)) {
+                            t = 'array'
+                        } else {
+                            const typ = typeof v
+                            if (typ === 'string') t = 'string'
+                            else if (typ === 'number') t = 'number'
+                            else if (typ === 'boolean') t = 'boolean'
+                            else if (typ === 'object') t = 'object'
+                            else t = 'any'
+                        }
+                        return { key: k, label: k, type: t }
+                    })
+                } catch (e) {
+                    triggerMeta.outputSchema = [
+                        { key: 'messageId', label: 'messageId', type: 'string' },
+                        { key: 'message', label: 'message', type: 'any' },
+                        { key: 'time', label: 'time', type: 'string' }
+                    ]
+                }
             }
 
             nodes.value = [{
@@ -681,11 +704,7 @@ const selectedNodeInputs = computed(() => {
         const metadata = incomer.data?.metadata
         if (metadata?.outputSchema && Array.isArray(metadata.outputSchema)) {
             for (const f of metadata.outputSchema) {
-                if(f.label != f.key) {
-                    res.push({ label: `${f.label}(${f.key})`, key: `${f.key}`, type: f.type })
-                } else {
-                    res.push({ label: `${f.key}`, key: `${f.key}`, type: f.type })
-                }
+                res.push({ label: f.label, key: f.key, type: f.type })
             }
         }
     }
@@ -700,11 +719,11 @@ const selectedNodeOutputs = computed(() => {
     const meta = node.data?.metadata
     if (!meta) return []
     if (!meta.outputSchema || !Array.isArray(meta.outputSchema)) return []
-    return meta.outputSchema.map((f: any) => ({ key: f.key, label: f.label || f.key, type: f.type }))
+    return meta.outputSchema.map((f: any) => ({ key: f.key, label: f.label, type: f.type }))
 })
 
-const selectedNodeInputsText = computed(() => selectedNodeInputs.value.map((i: any) => `${i.label} : ${i.type || 'any'}`).join('\n'))
-const selectedNodeOutputsText = computed(() => selectedNodeOutputs.value.map((o: any) => `${o.label} : ${o.type || 'any'}`).join('\n'))
+const selectedNodeInputsText = computed(() => selectedNodeInputs.value.map((i: any) => `${i.label != i.key  ? (i.label + '【' +i.key + '】') : i.key} : ${i.type || 'any'}`).join('\n'))
+const selectedNodeOutputsText = computed(() => selectedNodeOutputs.value.map((o: any) => `${o.label != o.key ? (o.label + '【' +o.key + '】') : o.key} : ${o.type || 'any'}`).join('\n'))
 
 // 本地编辑选中节点的参数（用于右侧面板快速编辑）
 const editingNodeParams = ref<Record<string, any>>({})
@@ -784,18 +803,10 @@ function onDrop(event: DragEvent) {
         y: event.clientY
     })
 
-    // 判断节点类型,特殊节点使用自定义类型
-    let nodeType = 'base'
-    if (draggedNodeType.value.id === 'note') {
-        nodeType = 'note'
-    } else if (draggedNodeType.value.id === 'if-else') {
-        nodeType = 'ifelse'
-    }
-
     // 创建新节点
     const newNode: Node = {
         id: `node-${nodeIdCounter++}`,
-        type: nodeType,
+        type: getExNodeTypes(draggedNodeType.value.id),
         position,
         data: {
             label: draggedNodeType.value.name,
@@ -981,164 +992,13 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
     cursor: not-allowed;
 }
 
-/* 模态对话框 */
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(var(--color-bg-rgb), 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-.modal-dialog {
-    background: rgba(var(--color-card-rgb), 0.95);
-    backdrop-filter: blur(20px);
-    border-radius: 12px;box-shadow:0 0 5px var(--color-shader);
-    max-width: 450px;
-    width: 90%;
-}
-
-/* Modal 进入和退出动画 */
-.modal-enter-active {
-    transition: opacity 0.2s ease-out;
-}
-
-.modal-leave-active {
-    transition: opacity 0.2s ease-in;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-    opacity: 0;
-}
-
-.modal-enter-active .modal-dialog {
-    animation: slideUp 0.3s ease-out;
-}
-
-.modal-leave-active .modal-dialog {
-    animation: slideDown 0.2s ease-in;
-}
-
-@keyframes slideUp {
-    from {
-        transform: translateY(20px);
-        opacity: 0;
-    }
-    to {
-        transform: translateY(0);
-        opacity: 1;
-    }
-}
-
-@keyframes slideDown {
-    from {
-        transform: translateY(0);
-        opacity: 1;
-    }
-    to {
-        transform: translateY(20px);
-        opacity: 0;
-    }
-}
-
-.modal-header {
-    padding: 20px 24px;
-    border-bottom: 1px solid rgba(var(--color-font-rgb), 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.modal-header h3 {
-    margin: 0;
-    color: var(--color-font);
-    font-size: 1.1rem;
-    font-weight: 600;
-}
-
-.modal-close {
-    background: transparent;
-    border: none;
-    color: var(--color-font-2);
-    cursor: pointer;
-    padding: 4px;
-    font-size: 1.2rem;
-    transition: color 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.modal-close:hover {
-    color: var(--color-font);
-}
-
-.modal-body {
-    padding: 24px;
-}
-
-.modal-body p {
-    margin: 0 0 12px 0;
-    color: var(--color-font);
-    font-size: 0.95rem;
-    line-height: 1.6;
-}
-
-.modal-hint {
-    color: var(--color-font-2);
-    font-size: 0.85rem !important;
-}
-
-.modal-footer {
-    padding: 16px 24px;
-    border-top: 1px solid rgba(var(--color-font-rgb), 0.1);
-    display: flex;
-    gap: 12px;
-    justify-content: flex-end;
-}
-
-.modal-btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-weight: 500;
-}
-
-.modal-btn-cancel {
-    background: rgba(var(--color-font-rgb), 0.1);
-    color: var(--color-font);
-}
-
-.modal-btn-cancel:hover {
-    background: rgba(var(--color-font-rgb), 0.15);
-}
-
-.modal-btn-confirm {
-    background: var(--color-main);
-    color: var(--color-font-r);
-}
-
-.modal-btn-confirm:hover {
-    opacity: 0.9;
-    transform: translateY(-1px);
-}
-
 .node-list {
     background: rgba(var(--color-card-rgb), 0.5);
     box-shadow: 0 0 5px var(--color-shader);
     backdrop-filter: blur(10px);
     height: calc(100vh - 60px);
     position: absolute;
-    width: 200px;
+    width: 250px;
     right: 10px;
     z-index: 10;
     top: 10px;

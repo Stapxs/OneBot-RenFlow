@@ -16,7 +16,7 @@ export interface ExecutionNode {
     params: Record<string, any>
     /** 下一个节点的 ID 列表（支持分支） */
     next: string[]
-    /** 条件分支配置（用于 if-else 等逻辑节点） */
+    /** 条件分支配置 */
     branches?: {
         /** 条件为真时的下一个节点 */
         true?: string

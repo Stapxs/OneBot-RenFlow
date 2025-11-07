@@ -2,14 +2,12 @@
     <div class="list-view">
         <!-- 左侧栏：垂直切换标签 -->
         <div class="ss-card left-panel tabs-panel">
-            <div class="panel-header">
-                <h3>导航</h3>
-            </div>
-            <div class="panel-body tabs-body">
+            <div class="tabs-body">
                 <button class="tab-item" :class="{ active: selectedTab === 'all' }" @click="selectTab('all')">
                     <font-awesome-icon :icon="['fas', 'fa-list']" />
                     <span>所有工作流</span>
                 </button>
+                <div />
                 <button class="tab-item" :class="{ active: selectedTab === 'settings' }" @click="selectTab('settings')">
                     <font-awesome-icon :icon="['fas', 'fa-gear']" />
                     <span>设置</span>
@@ -20,6 +18,7 @@
         <!-- 右侧内容区 -->
         <div class="right-content">
             <div class="content-controller">
+                <span>RenFlow Bot Editor</span>
                 <button title="新建工作流" @click="showCreateDialog = true">
                     <font-awesome-icon :icon="['fas', 'fa-plus']" />
                 </button>
@@ -41,22 +40,25 @@
                         <div class="grid">
                             <div v-for="workflow in filteredWorkflows" :key="workflow.id" class="card"
                                 @click="editWorkflow(workflow)">
-                                <!-- 删除 (右上角) -->
-                                <button class="card-delete" @click.stop="deleteWorkflow(workflow)">✕</button>
-
                                 <div class="card-header">
                                     <div class="card-title">{{ workflow.name }}</div>
-                                    <div class="card-sub">{{ workflow.triggerLabel || workflow.triggerName }}</div>
+                                    <button v-if="runningWorkflows.has(workflow.id)" class="card-running">
+                                        <font-awesome-icon spin :icon="['fas', 'fa-spinner']" />
+                                    </button>
+                                    <button :class="'card-status ' + (workflow.enabled ? 'green' : 'red')" @click.stop="toggleEnableWorkflow(workflow)">
+                                        <font-awesome-icon :icon="['fas', workflow.enabled ? 'fa-check' : 'fa-xmark']" />
+                                        {{ workflow.enabled ? '已启用' : '未启用' }}
+                                    </button>
+                                    <button class="card-delete" @click.stop="deleteWorkflow(workflow)">✕</button>
+                                </div>
+                                <div class="card-sub">
+                                    <font-awesome-icon :icon="['fas', 'fa-bolt']" />
+                                    {{ workflow.triggerLabel || workflow.triggerName }}
                                 </div>
                                 <div class="card-body">
-                                    <p class="card-desc">{{ workflow.description || '暂无描述' }}</p>
-                                </div>
-
-                                <!-- 启用/禁用 与 测试 按钮 (右下角) -->
-                                <div class="card-footer">
-                                    <button class="btn-small" @click.stop="toggleEnableWorkflow(workflow)">
-                                        {{ workflow.enabled ? '禁用' : '启用' }}
-                                    </button>
+                                    <div>
+                                        <p class="card-desc">{{ workflow.description || '暂无描述' }}</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -78,6 +80,7 @@ import { useRouter } from 'vue-router'
 import { windowManager } from '@app/functions/window'
 import { backend } from '@app/functions/backend'
 import { WorkflowStorage } from '@app/functions/workflow'
+import confirm from '@app/functions/confirm'
 import type { WorkflowListItem } from '@app/functions/workflow'
 import { Logger, LogType, PopInfo, PopType } from '@app/functions/base'
 import { connectorManager, RenMessage, runWorkflowByTrigger, type VueFlowWorkflow, WorkflowConverter, type WorkflowExecution } from 'renflow.runner'
@@ -94,6 +97,7 @@ const showCreateDialog = ref(false)
 
 // 工作流列表
 const workflowList = ref<WorkflowListItem[]>([])
+const runningWorkflows = ref<Set<string>>(new Set())
 
 // 搜索关键词
 const searchKeyword = ref('')
@@ -146,9 +150,6 @@ async function refreshWorkflowList() {
     await loadWorkflowList()
     popInfo.add(PopType.INFO, '列表已刷新')
 }
-
-// 选择工作流
-// selectWorkflow removed: clicking a card opens edit directly
 
 // 切换启用/禁用工作流
 async function toggleEnableWorkflow(workflow: WorkflowListItem) {
@@ -209,7 +210,15 @@ async function editWorkflow(workflow: WorkflowListItem) {
 // 删除工作流
 async function deleteWorkflow(workflow: WorkflowListItem) {
     try {
-        await WorkflowStorage.delete(workflow.id)
+            // 使用全局确认弹窗，避免使用原生 window.confirm
+            const ok = await confirm({
+                title: '删除工作流',
+                message: `确定要删除工作流 "${workflow.name}" 吗？此操作无法撤销。`,
+                confirmText: '删除',
+                cancelText: '取消'
+            })
+            if (!ok) return
+            await WorkflowStorage.delete(workflow.id)
         popInfo.add(PopType.INFO, '工作流已删除')
 
         // 刷新列表
@@ -254,6 +263,11 @@ const handleCreateWorkflow = async (workflow: any) => {
 // 组件挂载时加载工作流列表
 onMounted(async () => {
     loadWorkflowList()
+
+    const container = document.getElementById('mac-controller')
+    if(container) {
+        container.style.width = '50%'
+    }
 
     // 如果在桌面模式，监听来自其它窗口的工作流更新事件，以便实时刷新列表
     try {
@@ -308,6 +322,8 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
         onWorkflowStart: async (workflowId: string): Promise<boolean> => {
             // 如果不是桌面模式，编辑窗口不会接管执行，应当允许工作流继续执行
             if (!backend.isDesktop()) return true
+
+            runningWorkflows.value.add(workflowId)
 
             try {
                 const { emit, listen } = await import('@tauri-apps/api/event')
@@ -425,6 +441,7 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
             }
         },
         onWorkflowComplete: async (workflowId: string, workflowResult: any) => {
+            runningWorkflows.value.delete(workflowId)
             try {
                 if (backend.isDesktop()) {
                     const { emit } = await import('@tauri-apps/api/event')
@@ -439,7 +456,7 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
 </script>
 <style scoped>
 .list-view {
-    background-color: var(--color-bg);
+    background-color: rgba(var(--color-bg-rgb), 0.5);
     width: 100%;
     height: 100vh;
     display: flex;
@@ -450,49 +467,53 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
 
 /* 左侧标签面板 */
 .left-panel {
+    padding: 10px;
     background: rgba(var(--color-card-rgb), 0.5);
     box-shadow: 0 0 5px var(--color-shader);
     backdrop-filter: blur(10px);
-    height: calc(100vh - 60px);
+    height: calc(100vh - 40px);
     width: 200px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
 }
 
-.panel-header {
-    padding: 15px;
-    border-bottom: 1px solid var(--color-card-2);
-}
-
-.panel-header h3 {
-    margin: 0;
-    font-size: 0.95rem;
-    color: var(--color-font);
-}
-
 .tabs-body {
-    padding: 8px;
+    height: 100%;
+    margin-top: 30px;
     display: flex;
     flex-direction: column;
     gap: 8px
 }
+.tabs-body > div {
+    flex: 1;
+}
 
 .tab-item {
+    transition: background 0.2s, color 0.2s, opacity 0.2s;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px;
+    padding: 8px 20px;
     border-radius: 8px;
     background: transparent;
     border: none;
     cursor: pointer;
     color: var(--color-font-2);
+    font-size: 0.75rem;
 }
-
 .tab-item.active {
-    background: rgba(var(--color-card-2-rgb), 0.12);
+    background: var(--color-main);
+    color: var(--color-font-r);
+}
+.tab-item:hover {
+    background: var(--color-card-1);
     color: var(--color-font);
+}
+.tab-item.active:hover {
+    background: var(--color-main);
+    color: var(--color-font-r);
+    opacity: 0.9;
 }
 
 /* 右侧主区域 */
@@ -500,7 +521,7 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
     overflow-y: auto;
     flex: 1;
     display: flex;
-    flex-direction: column
+    flex-direction: column;
 }
 
 .content-controller {
@@ -509,6 +530,11 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
     align-items: center;
     justify-content: flex-end;
     gap: 10px
+}
+.content-controller > span {
+    color: var(--color-font);
+    font-weight: bold;
+    flex: 1;
 }
 
 .content-controller button {
@@ -529,12 +555,16 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
     border-radius: 999px;
     background: rgba(var(--color-card-rgb), 0.5);
 }
-
 .content-controller input {
     background: transparent;
     border: none;
     outline: none;
     color: var(--color-font)
+}
+.content-controller svg {
+    color: var(--color-font-2);
+    width: 13px;
+    height: 13px;
 }
 
 .detail-card {
@@ -606,58 +636,62 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
     flex-direction: column;
     justify-content: space-between
 }
-
 .card-header {
     display: flex;
-    justify-content: space-between;
     align-items: center
 }
-
+.card-running,
+.card-status,
+.card-delete {
+    cursor: pointer;
+    margin-left: 5px;
+    width: 25px;
+    height: 25px;
+    border-radius: 25px;
+    border: 2px solid var(--color-card-2);
+    background: var(--color-card-1);
+}
+.card-status {
+    border: 2px solid transparent;
+    width: fit-content;
+}
+.card-status.red {
+    background: #f8c7c7;
+}
+.card-status.green {
+    background: #c6f1c2;
+}
 .card-title {
     font-weight: 600;
+    flex: 1;
     color: var(--color-font)
 }
-
 .card-sub {
     color: var(--color-font-2);
     font-size: 0.85rem
 }
-
-.card-body {
-    margin: 8px 0
+.card-sub > svg {
+    color: var(--color-font-2);
 }
+.card-body {
+    margin: 8px 0;
+    display: flex;
 
-.card-desc {
+}
+.card-body > div {
+    flex: 1;
+}
+.card-body > div > p {
     color: var(--color-font-2);
     font-size: 0.9rem;
     max-height: 3.6em;
     overflow: hidden
 }
 
-.card-footer {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end
-}
-
-.btn-small {
-    padding: 6px 10px;
-    border-radius: 6px;
-    background: rgba(var(--color-card-rgb), 0.4);
-    border: none;
-    cursor: pointer
-}
-
-.btn-small.btn-danger {
-    background: rgba(255, 59, 48, 0.8);
-    color: #fff
-}
-
 .settings-panel {
     padding: 12px
 }
 
-/* utility */
 .empty-tip {
     text-align: center;
     color: var(--color-font-2);

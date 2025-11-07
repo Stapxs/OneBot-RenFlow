@@ -1,3 +1,4 @@
+import { getGlobal } from '../../utils/node.js'
 import { getValue } from '../../utils/util.js'
 import { BaseNode } from '../BaseNode.js'
 import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types.js'
@@ -47,7 +48,7 @@ export class HtmlRenderNode extends BaseNode {
                 const placeholder = match[0]
                 const path = match[1].split('.')
                 const nodeId = path[0]
-                const nodeData = this.getGlobal(context, nodeId)
+                const nodeData = getGlobal(context, nodeId)
                 const value = getValue(nodeData, path.slice(1).join('.'))
                 if (value !== undefined) {
                     html = html.replace(placeholder, String(value))

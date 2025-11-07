@@ -195,6 +195,12 @@ export class WorkflowEngine {
                 finalState: context.globalState
             }
 
+            try {
+                await options.callback?.onWorkflowComplete?.(result)
+            } catch (cbErr) {
+                this.logger.error('onWorkflowComplete callback error', cbErr as any)
+            }
+
             return result
         }
     }
@@ -319,8 +325,8 @@ export class WorkflowEngine {
         if (!node.branches) return
 
         // 根据节点类型处理分支
-        if (node.type === 'if-else') {
-            // if-else 节点：根据输出的布尔值选择分支
+        if (node.type === 'ifelse') {
+            // ifelse 节点：根据输出的布尔值选择分支
             const condition = result.output._branch
             const branchKey = condition ? 'true' : 'false'
             const nextNodeId = node.branches[branchKey]

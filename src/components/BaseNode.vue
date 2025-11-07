@@ -64,17 +64,19 @@ const hideParams = computed(() => {
     return settingsRequired.value || nonSettingsCount.value > 5
 })
 
-// 显示在节点上的参数（如果需要隐藏则不显示参数）
+// 显示在节点上的参数（支持 pin：为 true 的参数无论 hide 都会显示）
 const displayParams = computed(() => {
+    const nonSettings = params.value.filter(p => p.type !== 'settings')
     if (hideParams.value) {
-        return []
+        // 仅显示被 pin 的参数（保持向后兼容）
+        return nonSettings.filter((p: any) => Boolean(p.pin))
     }
-    return params.value.filter(p => p.type !== 'settings')
+    return nonSettings
 })
 
-// 设置面板中的参数(排除 settings 类型)
+// 设置面板中的参数(排除 settings 类型并且排除被 pin 的参数)
 const settingsParams = computed(() => {
-    return params.value.filter(p => p.type !== 'settings')
+    return params.value.filter(p => p.type !== 'settings' && !(p as any).pin)
 })
 
 // 更新节点数据的辅助函数

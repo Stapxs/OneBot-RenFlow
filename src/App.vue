@@ -6,6 +6,7 @@ import { backend } from '@app/functions/backend'
 import { setAutoDark } from '@app/functions/utils/app'
 import { setupToast } from '@app/functions/toast'
 import Toast from '@app/components/AppToast.vue'
+import GlobalConfirm from '@app/components/GlobalConfirm.vue'
 
 const dev = import.meta.env.DEV
 
@@ -42,13 +43,11 @@ onMounted(async () => {
 </script>
 
 <template>
-    <div class="app-container">
+    <div id="app-container" class="app-container">
         <!-- Windows/Linux 自定义标题栏 -->
         <div v-if="['linux', 'win32'].includes(backend.platform ?? '')"
-            :class="'top-bar' + ((backend.platform == 'win32' && dev) ? ' win' : '')"
-            name="appbar"
-            data-tauri-drag-region="true"
-            @mousedown="handleAppbarMouseDown">
+            :class="'top-bar' + ((backend.platform == 'win32' && dev) ? ' win' : '')" name="appbar"
+            data-tauri-drag-region="true" @mousedown="handleAppbarMouseDown">
             <div class="bar-button" @click="barMainClick()" />
             <div class="space" />
             <div class="controller">
@@ -62,8 +61,7 @@ onMounted(async () => {
         </div>
 
         <!-- macOS 拖拽区域 -->
-        <div v-if="backend.platform == 'darwin'"
-            class="controller mac-controller"
+        <div v-if="backend.platform == 'darwin'" id="mac-controller" class="controller mac-controller"
             data-tauri-drag-region="true" />
 
         <!-- 路由视图 -->
@@ -71,5 +69,7 @@ onMounted(async () => {
 
         <!-- 全局 Toast 通知 -->
         <Toast ref="toastRef" />
+        <!-- 全局确认对话框 -->
+        <GlobalConfirm />
     </div>
 </template>

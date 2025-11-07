@@ -142,6 +142,23 @@ export abstract class RenMessage {
     }
 }
 
+export class BaseRenMessage extends RenMessage {
+    messageId: string = ''
+    messageSeqId?: number | undefined
+    messageType: 'group' | 'private' = 'private'
+    selfId: number = 0
+    targetId?: number | undefined
+    groupId?: number | undefined
+    groupName?: string | undefined
+    userId?: number | undefined
+    sender: SenderDTO = new SenderDTO()
+    rawMessage: string = ''
+    message: string | { type: RenMessageDataType; data: RenMessageBodyData }[]
+        = ''
+    time: Date = new Date()
+    isMine: boolean = false
+}
+
 // callApi 基本参数类型 ==================================================
 
 export type RenApiParamsType = RenApiParamsMessage

@@ -4,7 +4,7 @@ import { BaseBotAdapter } from '../../connectors/index.js'
 import { RenMessage, RenMessageBodyData, RenMessageDataType, RenMessageImage, RenMessageText } from '../../index.js'
 import { BaseNode } from '../BaseNode.js'
 import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types.js'
-import { getValue } from '../../utils/util.js'
+import { fillTextTemplate, getGlobal } from '../../utils/node.js'
 
 /**
  * 发送复杂消息节点
@@ -56,7 +56,7 @@ export class SendMessageNode extends BaseNode {
         ],
         outputSchema: [
             {
-                key: 'rawHtml',
+                key: 'sent',
                 label: '发送状态',
                 type: 'boolean',
                 description: '消息是否成功发送'
@@ -75,7 +75,7 @@ export class SendMessageNode extends BaseNode {
         params: Record<string, any>,
         context: NodeContext
     ): Promise<NodeExecutionResult> {
-        const bot = this.getGlobal(context, 'bot') as BaseBotAdapter
+        const bot = getGlobal(context, 'bot') as BaseBotAdapter
         if (!bot || typeof bot.callApiSync !== 'function') {
             return {
                 success: false,
@@ -83,7 +83,7 @@ export class SendMessageNode extends BaseNode {
             }
         }
 
-        const message = this.getGlobal(context, 'trigger') as RenMessage
+        const message = getGlobal(context, 'trigger') as RenMessage
 
         let senderCfg = params['sender']
         let targetCfg = params['target']
@@ -107,30 +107,7 @@ export class SendMessageNode extends BaseNode {
         for (const item of rawVal) {
             // 对 item.data 中的 {nodeid.value} 进行替换
             if (typeof item.data === 'string' && item.data.includes('{') && item.data.includes('}')) {
-                const regex = /\{([^}]+)\}/g
-                let match
-                let newData = item.data
-                while ((match = regex.exec(item.data)) !== null) {
-                    const placeholder = match[0]
-                    const path = match[1].split('.')
-                    let value = undefined
-                    if(path.length == 1) {
-                        value = getValue(input, path[0])
-                    } else {
-                        const nodeId = path[0]
-                        const nodeData = this.getGlobal(context, nodeId)
-                        value = getValue(nodeData, path.slice(1).join('.'))
-                    }
-                    if (value !== undefined) {
-                        newData = newData.replace(placeholder, String(value))
-                    } else {
-                        return {
-                            success: false,
-                            error: `无法解析占位符：${placeholder}，获取占位数据失败。`
-                        }
-                    }
-                }
-                item.data = newData
+                item.data = fillTextTemplate(item.data, input, context)
             }
 
             switch (item.value) {
@@ -169,7 +146,6 @@ export class SendMessageNode extends BaseNode {
             return {
                 success: true,
                 output: {
-                    text: '',
                     sent: true,
                     message: '消息发送成功'
                 }

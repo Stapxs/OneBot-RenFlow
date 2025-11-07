@@ -5,7 +5,6 @@ import { RenApiData } from './msgTypes'
 
 export interface BotAdapter {
     id: AdapterId
-    options?: AdapterOptions
     connect(): Promise<void>
     disconnect(): Promise<void>
     on(event: string, handler: AdapterEventHandler): void
@@ -23,7 +22,8 @@ export interface BotAdapter {
  */
 export abstract class BaseBotAdapter implements BotAdapter {
     public id: AdapterId
-    public options?: AdapterOptions
+    // 请务必将 options 定义为 protected，以避免被外部直接访问
+    protected options?: AdapterOptions
     protected ee = new EventEmitter()
     protected connected = false
 

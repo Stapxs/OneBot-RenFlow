@@ -17,7 +17,7 @@ export class NapcatAdapter extends BaseBotAdapter {
     private reconnectTimer: any = null
     private pendingApiResponses: Map<string, { resolve: (v: any) => void, reject: (e: any) => void, timer?: any }> = new Map()
 
-    declare options: NapcatAdapterOptions
+    protected declare options: NapcatAdapterOptions
 
     constructor(id: string, opts?: NapcatAdapterOptions) {
         super(id, opts)

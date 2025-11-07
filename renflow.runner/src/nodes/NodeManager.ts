@@ -46,6 +46,7 @@ export class NodeManager {
             // 为所有节点注入一个可配置的 "输出到全局" 开关，避免重复注入
             if (!node.metadata.params.find(p => p.key === 'outputToGlobal')) {
                 node.metadata.params.push({
+                    pin: true,
                     key: 'outputToGlobal',
                     label: '输出到全局',
                     type: 'switch',
@@ -62,7 +63,15 @@ export class NodeManager {
      * @returns 节点元数据列表
      */
     getNodeList(): NodeMetadata[] {
-        return Array.from(this.nodes.values()).map(node => node.metadata)
+        const nodes = Array.from(this.nodes.values()).map(node => node.metadata)
+        // 按照 category 和 id 排序
+        nodes.sort((a, b) => {
+            if (a.category === b.category) {
+                return a.id.localeCompare(b.id)
+            }
+            return a.category.localeCompare(b.category)
+        })
+        return nodes
     }
 
     /**

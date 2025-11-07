@@ -7,7 +7,7 @@ import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types.js
  */
 export class IfElseNode extends BaseNode {
     metadata: NodeMetadata = {
-        id: 'if-else',
+        id: 'ifelse',
         name: '条件分支',
         description: '根据条件判断执行不同分支',
         category: 'flow',

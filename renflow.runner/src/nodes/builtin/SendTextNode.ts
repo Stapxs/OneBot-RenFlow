@@ -4,6 +4,7 @@ import { BaseNode } from '../BaseNode.js'
 import type { NodeMetadata, NodeContext, NodeExecutionResult } from '../types.js'
 import { NcRenApiData, NcRenApiParamsMessage, NcRenApiResponse } from '../../connectors/adapter/onebot/napcatMsgTypes.js'
 import { plainToInstance } from 'class-transformer'
+import { fillTextTemplate, getGlobal } from '../../utils/node.js'
 
 /**
  * 发送文本消息节点
@@ -22,7 +23,6 @@ export class SendTextNode extends BaseNode {
                 label: '消息内容',
                 type: 'textarea',
                 placeholder: '输入要发送的文本消息',
-                defaultValue: '{data.text}',
                 required: true,
                 dynamic: true
             }
@@ -56,7 +56,7 @@ export class SendTextNode extends BaseNode {
     ): Promise<NodeExecutionResult> {
         const text = params.text
 
-        const bot = this.getGlobal(context, 'bot') as BaseBotAdapter
+        const bot = getGlobal(context, 'bot') as BaseBotAdapter
         if (!bot || typeof bot.callApiSync !== 'function') {
             return {
                 success: false,
@@ -64,11 +64,11 @@ export class SendTextNode extends BaseNode {
             }
         }
 
-        const message = this.getGlobal(context, 'trigger') as RenMessage
+        const message = getGlobal(context, 'trigger') as RenMessage
 
         const messageBody = {
             type: RenMessageDataType.text,
-            data: new RenMessageText(text)
+            data: new RenMessageText(fillTextTemplate(text, input, context))
         }
         const id = message.groupId || message.userId
         if(id == undefined) {

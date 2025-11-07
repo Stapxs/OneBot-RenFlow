@@ -99,7 +99,7 @@ const emitUpdate = () => {
                     <span v-for="param in availableParameters"
                         :key="param.value"
                         class="param-tag">
-                        {{ param.label }}
+                        {{ param.label }} ({{ param.value }})
                     </span>
                 </div>
             </div>

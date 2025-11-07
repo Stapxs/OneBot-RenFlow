@@ -11,21 +11,6 @@ export abstract class BaseNode {
     logger = new Logger('BaseNode')
 
     /**
-     * 从全局存储读取值
-     * @param context 节点执行上下文
-     * @param key 键
-     * @param defaultValue 默认值（当不存在时返回）
-     */
-    protected getGlobal(context: NodeContext, key: string, defaultValue?: any): any {
-        try {
-            if (!context || !context.globalState) return defaultValue
-            return context.globalState.has(key) ? context.globalState.get(key) : defaultValue
-        } catch (_) {
-            return defaultValue
-        }
-    }
-
-    /**
      * 写入全局存储
      * @param context 节点执行上下文
      * @param key 键
