@@ -62,7 +62,12 @@ export class HttpRequestNode extends BaseNode {
         params: Record<string, any>,
         context: NodeContext): Promise<NodeExecutionResult> {
         const method = (params.method || 'GET').toUpperCase()
-        const rawUrl = fillTextTemplate(params.url, input, context)
+        let rawUrl: string
+        try {
+            rawUrl = fillTextTemplate(params.url, input, context, true)
+        } catch (e) {
+            return { success: false, error: `URL 模板解析失败: ${(e as unknown as Error).message || String(e)}` }
+        }
         if (!rawUrl) return { success: false, error: '缺少 url 参数' }
 
         let headers: Record<string, string> = {}
@@ -167,7 +172,6 @@ export class HttpRequestNode extends BaseNode {
             } catch (err: any) {
                 clearTimeout(timer)
                 if (attempt <= retries) {
-                    // small backoff
                     await new Promise(r => setTimeout(r, 200 * attempt))
                     continue
                 }

@@ -57,7 +57,7 @@
                                 </div>
                                 <div class="card-body">
                                     <div>
-                                        <p class="card-desc">{{ workflow.description || '暂无描述' }}</p>
+                                        <p class="card-desc">{{ workflow.description || '（暂无描述）' }}</p>
                                     </div>
                                 </div>
                             </div>
@@ -75,12 +75,14 @@
 </template>
 
 <script setup lang="ts">
+import confirm from '@app/functions/confirm'
+import Option from '@app/functions/option'
+
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { windowManager } from '@app/functions/window'
 import { backend } from '@app/functions/backend'
 import { WorkflowStorage } from '@app/functions/workflow'
-import confirm from '@app/functions/confirm'
 import type { WorkflowListItem } from '@app/functions/workflow'
 import { Logger, LogType, PopInfo, PopType } from '@app/functions/base'
 import { connectorManager, RenMessage, runWorkflowByTrigger, type VueFlowWorkflow, WorkflowConverter, type WorkflowExecution } from 'renflow.runner'
@@ -91,6 +93,8 @@ import type { BaseBotAdapter } from 'renflow.runner/dist/connectors'
 const router = useRouter()
 const popInfo = new PopInfo()
 const logger = new Logger()
+
+const bots = ref<BaseBotAdapter[]>([])
 
 // 控制新建弹窗显示
 const showCreateDialog = ref(false)
@@ -107,7 +111,13 @@ const selectedTab = ref<'all' | 'settings'>('all')
 
 function selectTab(tab: 'all' | 'settings') {
     if (tab === 'settings') {
-        const settingsUrl = '/settings'
+        // 提供 bots 信息给设置页（以 id: status 形式）
+        const botStates: { [id: string]: boolean } = {}
+        for (const bot of bots.value) {
+            const id = bot.id
+            botStates[id] = bot.connected
+        }
+        const settingsUrl = '/settings?bots=' + encodeURIComponent(JSON.stringify(botStates))
         if (backend.isDesktop()) {
             void windowManager.createWindow({
                 label: 'settings',
@@ -229,9 +239,6 @@ async function deleteWorkflow(workflow: WorkflowListItem) {
     }
 }
 
-// 格式化日期
-// formatDate removed (not used in card-only layout). Use a shared util if needed.
-
 // 处理创建工作流
 const handleCreateWorkflow = async (workflow: any) => {
     // 构建触发器显示标签（如果是自定义，使用 customTriggerName）
@@ -280,29 +287,33 @@ onMounted(async () => {
         logger.add(LogType.ERR, '注册 workflow:updated 事件监听失败', e)
     }
 
-    // 创建一个临时 bot 测试
-    const adapterId = 'napcat'
-    const adapter = await connectorManager.createBotAdapter('napcat', {
-        url: 'ws://127.0.0.1:3001',
-        token: '12345'
-    }, adapterId)
+    const saved = await Option.get('bots')
+    if (saved && Array.isArray(saved)) {
+        saved.forEach(async item => {
+            const adapter = await connectorManager.createBotAdapter(item.type, {
+                url: item.address,
+                token: item.token
+            }, item.id)
+            bots.value.push(adapter)
 
-    // 本地订阅适配器事件
-    adapter.on(['message', 'message_mine'], (p: RenMessage) => {
-        const eventName = p.isMine ? 'message_mine' : 'message'
-        runFlow(p, adapter, workflowList.value.filter(w => w.triggerName === eventName && w.enabled))
-    })
-    adapter.on('connect', () => {
-        logger.add(LogType.INFO, `适配器已连接: ${adapterId}`)
-    })
-    adapter.on('disconnect', () => {
-        logger.add(LogType.ERR, `适配器已断开: ${adapterId}`)
-    })
-    adapter.on('error', (err: any) => {
-        logger.add(LogType.ERR, `适配器错误: ${adapterId}`, err)
-    })
+            // 本地订阅适配器事件
+            adapter.on(['message', 'message_mine'], (p: RenMessage) => {
+                const eventName = p.isMine ? 'message_mine' : 'message'
+                runFlow(p, adapter, workflowList.value.filter(w => w.triggerName === eventName && w.enabled))
+            })
+            adapter.on('connect', () => {
+                logger.add(LogType.INFO, `适配器已连接: ${item.id}`)
+            })
+            adapter.on('disconnect', () => {
+                logger.add(LogType.ERR, `适配器已断开: ${item.id}`)
+            })
+            adapter.on('error', (err: any) => {
+                logger.add(LogType.ERR, `适配器错误: ${item.id}`, err)
+            })
 
-    await adapter.connect()
+            await adapter.connect()
+        })
+    }
 })
 
 const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowListItem[]) => {
@@ -500,7 +511,7 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
     border: none;
     cursor: pointer;
     color: var(--color-font-2);
-    font-size: 0.75rem;
+    font-size: 0.8rem;
 }
 .tab-item.active {
     background: var(--color-main);
@@ -629,7 +640,7 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
 .card {
     background: rgba(var(--color-card-rgb), 0.5);
     padding: 12px;
-    border-radius: 10px;
+    border-radius: 7px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     cursor: pointer;
     display: flex;
@@ -654,6 +665,7 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
 .card-status {
     border: 2px solid transparent;
     width: fit-content;
+    color: #000;
 }
 .card-status.red {
     background: #f8c7c7;

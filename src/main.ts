@@ -13,6 +13,8 @@ import '@vue-flow/controls/dist/style.css'
 
 import './assets/css/flow.css'
 import './assets/css/style.css'
+import './assets/css/option.css'
+import './assets/css/modal.css'
 
 const app = createApp(App)
 

@@ -386,9 +386,7 @@ pub fn sys_run_proxy() -> u16 {
     return PROXY_PORT.get().unwrap().clone();
 }
 
-use serde::Deserialize;
-
-/// 设置 Store 值
+// 设置 Store 值
 #[command]
 pub async fn sys_set_store_value(
     app: AppHandle,

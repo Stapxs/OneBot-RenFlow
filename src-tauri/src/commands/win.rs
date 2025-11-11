@@ -37,6 +37,7 @@ pub fn win_create_window(app_handle: AppHandle, options: CreateWindowOptions) ->
         options.height.unwrap_or(530.0)
     )
     .disable_drag_drop_handler()
+    .traffic_light_position(tauri::LogicalPosition::new(20.0, 30.0))
     .transparent(true);
 
     // 平台特定配置

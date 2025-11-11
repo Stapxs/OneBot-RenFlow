@@ -128,14 +128,14 @@ const cancelSettings = () => {
                     <div v-if="description" class="settings-desc" v-html="description" />
 
                     <div v-if="!template" class="settings-body">
-                        <div v-for="param in visibleParams" :key="param.key" class="param-item">
+                        <div v-for="(param, index) in visibleParams" :key="param.key" class="param-item">
                             <div v-if="param.type != 'switch'" class="param-label">
                                 <label :class="{ required: param.required }">{{ param.label }}</label>
                                 <button v-if="paramTip(param)" class="info-btn" aria-label="info"
                                     @click.stop.prevent="toggleTip(param.key)">
                                     <font-awesome-icon :icon="['fas', 'info-circle']" />
                                 </button>
-                                <div v-if="paramTip(param)" class="tip-popup" :class="{ visible: visibleTips[param.key] }">
+                                <div v-if="paramTip(param)" class="tip-popup" :class="{ visible: visibleTips[param.key], first: index === 0 }">
                                     {{ paramGetTip(param) }}
                                 </div>
                             </div>
@@ -326,90 +326,6 @@ const cancelSettings = () => {
     padding: 20px;
 }
 
-.param-item {
-    margin-bottom: 16px;
-}
-
-.param-item:last-child {
-    margin-bottom: 0;
-}
-
-.param-item>label,
-.param-item .switch-container > label {
-    display: block;
-    font-size: 0.85rem;
-    color: var(--color-font);
-    margin-bottom: 6px;
-    font-weight: 500;
-}
-
-.param-item>label.required::after {
-    content: ' *';
-    color: var(--color-main);
-}
-
-.param-item input[type="text"],
-.param-item input[type="number"],
-.param-item textarea,
-.param-item select {
-    width: 100%;
-    background: var(--color-card-2);
-    border: 1px solid var(--color-card-2);
-    border-radius: 6px;
-    padding: 8px 12px;
-    font-size: 0.85rem;
-    color: var(--color-font);
-    outline: none;
-    transition: border-color 0.2s, background 0.2s;
-    box-sizing: border-box;
-}
-
-.param-item select {
-    height: 36px;
-}
-
-.param-item input[type="text"]:focus,
-.param-item input[type="number"]:focus,
-.param-item textarea:focus,
-.param-item select:focus {
-    border-color: var(--color-main);
-    background: var(--color-bg);
-}
-
-.param-item textarea {
-    resize: vertical;
-    min-height: 80px;
-    font-family: inherit;
-}
-
-.param-item select {
-    cursor: pointer;
-}
-
-.param-item .switch-container {
-    align-items: center;
-    display: flex;
-}
-.param-item .switch-container label:first-child {
-    flex: 1;
-}
-.param-item .ss-switch {
-    --switch-dot-border: 4px;
-    --switch-dot-margin: 5px;
-    --switch-height: 25px;
-    margin-left: 10px;
-    margin-bottom: 0;
-    min-width: 45px;
-}
-.param-item .ss-switch > div > div {
-    margin-left: 1px;
-    margin-top: 1px;
-}
-.param-item .ss-switch input:checked ~ div > div {
-    border: var(--switch-dot-border) solid #fff;
-    margin-left: calc(100% - var(--switch-height) + var(--switch-dot-margin) - 4px);
-}
-
 .settings-footer {
     background: rgba(var(--color-card-1-rgb), 0.5);
     border-radius: 0 0 7px 7px;
@@ -452,14 +368,25 @@ const cancelSettings = () => {
     transform: scale(0.98);
 }
 
-
+.switch-container > label,
 .param-label {
     position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 0.9rem;
-    margin-bottom: 10px;
+    margin-top: 10px;
+}
+.param-item .ss-switch {
+    --switch-height: 25px;
+    min-width: 45px;
+}
+.param-item input[type="text"],
+.param-item input[type="number"],
+.param-item input[type="password"],
+.param-item textarea,
+.param-item select {
+    font-size: 0.85rem;
 }
 
 .info-btn {
@@ -490,17 +417,23 @@ const cancelSettings = () => {
     opacity: 0;
     transform: translateY(calc(-100% - 2rem - 6px));
     transition: opacity 0.15s, transform 0.15s;
-    z-index: 1100;
     pointer-events: none;
+    z-index: 10;
 }
 
 .tip-popup.visible {
     transform: translateY(calc(-100% - 2rem));
     opacity: 1;
 }
+.tip-popup.first {
+    transform: translateY(calc(100% - 4rem));
+}
 
 .info-btn:hover+.tip-popup {
     transform: translateY(calc(-100% - 2rem));
     opacity: 1;
+}
+.info-btn:hover+.tip-popup.first {
+    transform: translateY(calc(100% - 4rem));
 }
 </style>

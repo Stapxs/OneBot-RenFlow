@@ -1,0 +1,159 @@
+.ss-switch {
+    --switch-dot-margin: 6px;
+    --switch-height: 25px;
+    min-width: 45px;
+}
+.ss-switch > div > div {
+    margin-top: 2px;
+}
+.ss-switch > div > div {
+    margin-left: calc(var(--switch-dot-margin) - 5px);
+}
+
+.ss-switch input:checked ~ div > div {
+    border: var(--switch-dot-border) solid #fff;
+    margin-left: calc(
+        100% - var(--switch-height) + var(--switch-dot-margin) - 5px
+    );
+}
+
+.ss-button {
+    font-size: 0.75rem;
+    height: 30px;
+    width: 90px;
+}
+
+.opt-item {
+    transition: background 0.3s;
+    padding: 10px 15px 10px 20px;
+    align-items: center;
+    border-radius: 7px;
+    flex-wrap: wrap;
+    display: flex;
+}
+
+.opt-item:hover {
+    background: var(--color-card-2);
+}
+
+.opt-item > div {
+    flex-direction: column;
+    margin-right: 20px;
+    overflow: hidden;
+    display: flex;
+    flex: 1;
+}
+.opt-item > div:first-child {
+    transition: all 0.3s;
+    border-radius: 5px;
+    margin-right: 16px;
+    margin-left: -20px;
+    cursor: pointer;
+    max-width: 5px;
+    height: 1.3rem;
+}
+.opt-item:hover > div:first-child.changed {
+    background: var(--color-font);
+}
+
+.opt-item > div.select-wrapper {
+    position: relative;
+    margin-right: 0;
+    height: 30px;
+    max-width: 170px;
+}
+.opt-item > div.select-wrapper::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid var(--color-font-2);
+}
+.opt-item select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    height: 100%;
+    background: var(--color-card-1);
+    color: var(--color-font);
+    border: none;
+    padding: 0 10px;
+    border-radius: 7px;
+    font-size: 0.8rem;
+}
+
+.opt-item > div > span:first-child {
+    font-size: 0.8rem;
+}
+.opt-item > div > span:last-child {
+    color: var(--color-font-1);
+    text-overflow: clip;
+    font-size: 0.75rem;
+}
+.opt-item > div > span:last-child > a {
+    color: var(--color-font-1);
+    font-size: 0.8rem;
+}
+
+.opt-item > svg {
+    color: var(--color-font);
+    margin-right: 20px;
+    margin-top: 1px;
+    height: 1.1rem;
+    width: 1.1rem;
+}
+.opt-item input[type='text'] {
+    line-height: 35px;
+    font-size: 0.8rem;
+}
+.opt-item div.ss-range {
+    --range-height: 30px !important;
+    max-width: 170px;
+    margin: 0 0 0 -25px;
+}
+.opt-item div.ss-range span {
+    font-size: 0.85rem;
+}
+.opt-item div.ss-range input::-webkit-slider-thumb,
+.opt-item div.ss-range input::-moz-range-thumb {
+    opacity: 0;
+}
+.opt-item div.ss-range input::-webkit-slider-runnable-track {
+    opacity: 0;
+}
+
+
+.opt-item > div.file-choice {
+    display: flex;
+    max-width: 170px;
+    flex-direction: row;
+    margin-right: 0;
+}
+
+.opt-item > div.file-choice > div {
+    background: var(--color-card-1);
+    border-radius: 7px;
+    font-size: 0.8rem;
+    height: 30px;
+    min-width: 30px;
+    line-height: 30px;
+    text-align: center;
+}
+
+.opt-item > div.file-choice > div.choice-btn {
+    flex: 1;
+    padding: 0 10px;
+}
+
+.opt-item > div.file-choice > div.rm-btn {
+    margin-left: 10px;
+    width: 30px;
+    cursor: pointer;
+    color: var(--color-red);
+}

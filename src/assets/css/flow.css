@@ -1,4 +1,8 @@
 .vue-flow__handle {
+    top: 21px;
+}
+
+.vue-flow__handle {
     background: var(--color-main);
     border-radius: 7px;
     border: 2px solid var(--color-bg);

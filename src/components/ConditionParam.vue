@@ -249,6 +249,7 @@ const emitUpdate = () => {
 }
 
 .params-tags {
+    max-width: 45vw;
     display: flex;
     flex-wrap: wrap;
     gap: 4px;

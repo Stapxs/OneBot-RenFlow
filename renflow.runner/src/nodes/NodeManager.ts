@@ -64,14 +64,16 @@ export class NodeManager {
      */
     getNodeList(): NodeMetadata[] {
         const nodes = Array.from(this.nodes.values()).map(node => node.metadata)
+        // 排除隐藏的节点
+        const filteredNodes = nodes.filter(node => !node.hidden)
         // 按照 category 和 id 排序
-        nodes.sort((a, b) => {
+        filteredNodes.sort((a, b) => {
             if (a.category === b.category) {
                 return a.id.localeCompare(b.id)
             }
             return a.category.localeCompare(b.category)
         })
-        return nodes
+        return filteredNodes
     }
 
     /**

@@ -17,8 +17,8 @@ export class ConnectorManager {
      */
     async callAdapterApi(adapterId: string, message: RenApiData): Promise<any> {
         const adapter = this.adapters.get(adapterId)
-        if (!adapter) throw new Error(`adapter not found: ${adapterId}`)
-        if (typeof adapter.callApiAsync !== 'function') throw new Error(`adapter does not support callApiAsync: ${adapterId}`)
+        if (!adapter) throw new Error(`未找到适配器: ${adapterId}`)
+        if (typeof adapter.callApiAsync !== 'function') throw new Error(`适配器不支持 callApiAsync: ${adapterId}`)
         return await adapter.callApiAsync(message)
     }
 
@@ -36,6 +36,11 @@ export class ConnectorManager {
     async createBotAdapter(type: string, opts: any, adapterId?: string) {
         const id = adapterId || `bot-${Math.random().toString(36).slice(2, 8)}`
 
+        // 如果 id 已存在，抛出错误
+        if (this.adapters.has(id)) {
+            throw new Error(`已存在适配器: ${id}`)
+        }
+
         if (type === 'napcat') {
             // 支持 OneBot 实现（Napcat）
             const mod = await import('./adapter/onebot/NapcatAdapter')
@@ -46,7 +51,13 @@ export class ConnectorManager {
             return adapter
         }
 
-        throw new Error(`Bot adapter type not implemented: ${type}`)
+        throw new Error(`未实现的 Bot 适配器类型: ${type}`)
+    }
+
+    getAllSupportedAdapterTypes(): string[] {
+        return [
+            'napcat',
+        ]
     }
 }
 

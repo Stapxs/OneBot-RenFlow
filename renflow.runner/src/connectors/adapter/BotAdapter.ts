@@ -22,10 +22,10 @@ export interface BotAdapter {
  */
 export abstract class BaseBotAdapter implements BotAdapter {
     public id: AdapterId
+    public connected = false
     // 请务必将 options 定义为 protected，以避免被外部直接访问
     protected options?: AdapterOptions
     protected ee = new EventEmitter()
-    protected connected = false
 
     constructor(id: AdapterId, opts?: AdapterOptions) {
         this.id = id

@@ -9,7 +9,7 @@ import ConditionParam from './ConditionParam.vue'
 const props = defineProps<NodeProps>()
 const isDev = import.meta.env.DEV
 
-const { removeNodes, getIncomers, findNode, updateNode } = useVueFlow()
+const { removeNodes, getIncomers, findNode, updateNode, getOutgoers } = useVueFlow()
 
 // 节点参数值
 const paramValues = ref<Record<string, any>>(props.data?.params || {})
@@ -120,9 +120,39 @@ const updateSettings = (newValues: Record<string, any>) => {
     updateNodeData(paramValues.value)
 }
 
-// 删除节点
+// 删除节点：如果当前节点的上游包含 merge 节点，也一并删除它们
 const deleteNode = () => {
-    removeNodes([props.id])
+    try {
+        const current = findNode(props.id)
+        const toRemove = new Set<string>()
+        toRemove.add(props.id)
+
+        if (current) {
+            const incomers = getIncomers(current)
+            for (const inc of incomers) {
+                const isMerge = !!(
+                    (inc.data && inc.data.nodeType === 'merge') ||
+                    (inc.data && inc.data.metadata && inc.data.metadata.id === 'merge')
+                )
+                if (!isMerge || !inc.id) continue
+
+                // 仅在 merge 节点不会被其它下游共享时才删除它：
+                // 若 merge 的 outgoers 只包含当前节点或为空，则安全删除；否则跳过
+                try {
+                    const outgoers = getOutgoers(inc) || []
+                    const outIds = outgoers.map((o: any) => o.id)
+                    const safeToRemove = outIds.length === 0 || (outIds.length === 1 && outIds[0] === props.id)
+                    if (safeToRemove) toRemove.add(inc.id)
+                } catch (e) {
+                    // 如果无法获取 outgoers，默认不删除以保证安全
+                }
+            }
+        }
+
+        removeNodes(Array.from(toRemove))
+    } catch (e) {
+        removeNodes([props.id])
+    }
 }
 
 defineEmits(['updateNodeInternals'])
@@ -372,87 +402,6 @@ defineEmits(['updateNodeInternals'])
     flex-direction: column;
     gap: 10px;
     margin-top: 5px;
-}
-
-.param-item {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.param-item > label,
-.param-item .switch-container > label,
-.node-settings-btn button {
-    color: var(--color-font);
-    font-size: 0.7rem;
-    font-weight: 500;
-}
-
-.param-item > label.required::after {
-    content: ' *';
-    color: #ff4444;
-}
-
-.param-item input[type="text"],
-.param-item input[type="number"],
-.param-item textarea,
-.param-item select {
-    background: rgba(var(--color-card-2-rgb), 0.5);
-    border: 1px solid rgba(var(--color-font-rgb), 0.1);
-    color: var(--color-font);
-    border-radius: 5px;
-    padding: 0 8px;
-    font-size: 0.75rem;
-    outline: none;
-    transition: border-color 0.2s, background 0.2s;
-}
-
-.param-item input[type="text"]:focus,
-.param-item input[type="number"]:focus,
-.param-item textarea:focus,
-.param-item select:focus {
-    border-color: var(--color-main);
-    background: rgba(var(--color-card-2-rgb), 0.8);
-}
-
-.param-item input[type="text"],
-.param-item input[type="number"],
-.param-item select {
-    height: 25px;
-}
-
-.param-item textarea {
-    resize: vertical;
-    min-height: 60px;
-    font-family: inherit;
-}
-
-.param-item select {
-    cursor: pointer;
-}
-
-.param-item .switch-container {
-    align-items: center;
-    display: flex;
-}
-.param-item .switch-container label:first-child {
-    flex: 1;
-}
-.param-item .ss-switch {
-    --switch-dot-border: 4px;
-    --switch-dot-margin: 5px;
-    --switch-height: 20px;
-    margin-left: 10px;
-    margin-bottom: 0;
-    min-width: 35px;
-}
-.param-item .ss-switch > div > div {
-    margin-left: 1px;
-    margin-top: 1px;
-}
-.param-item .ss-switch input:checked ~ div > div {
-    border: var(--switch-dot-border) solid #fff;
-    margin-left: calc(100% - var(--switch-height) + var(--switch-dot-margin) - 4px);
 }
 
 .node-tip {

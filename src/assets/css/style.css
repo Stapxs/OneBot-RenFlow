@@ -11,6 +11,7 @@
 
 html,
 body {
+    user-select: none;
     position: relative;
     text-autospace: normal;
     user-select: none;

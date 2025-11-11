@@ -45,6 +45,10 @@
                 <TriggerNode v-bind="triggerNodeProps" />
             </template>
 
+            <template #node-merge="mergeNodeProps">
+                <MergeNodeVue v-bind="mergeNodeProps" />
+            </template>
+
             <template #edge-base="baseEdgeProps">
                 <BaseEdge v-bind="baseEdgeProps" />
             </template>
@@ -95,15 +99,18 @@
                         <div v-else class="flow-edit">
                             <div class="flow-row">
                                 <label>名称</label>
-                                <input v-model="localFlow.name" type="text" placeholder="工作流名称">
+                                <input v-model="localFlow.name" class="flow-value-edit" type="text"
+                                    placeholder="工作流名称">
                             </div>
                             <div class="flow-row">
-                                <label>触发器标签</label>
-                                <input v-model="localFlow.triggerLabel" type="text" placeholder="触发器标签">
+                                <label>触发器</label>
+                                <input v-model="localFlow.triggerLabel" class="flow-value-edit" disabled
+                                    type="text" placeholder="触发器标签">
                             </div>
                             <div class="flow-row">
                                 <label>描述</label>
-                                <textarea v-model="localFlow.description" rows="3" placeholder="工作流描述" />
+                                <textarea v-model="localFlow.description" class="flow-value-edit" rows="3"
+                                    placeholder="工作流描述" />
                             </div>
                             <div class="flow-actions">
                                 <button class="cancel-btn" @click="cancelFlowEdit">取消</button>
@@ -158,7 +165,7 @@ import { LogLevel, init, nodeManager as runnerNodeManager, WorkflowConverter, Ba
 import { MergeNode, type NodeMetadata, type VueFlowWorkflow } from 'renflow.runner'
 import type { Node, Edge } from '@vue-flow/core'
 
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Controls } from '@vue-flow/controls'
@@ -172,6 +179,7 @@ import BaseEdge from '@app/components/BaseEdge.vue'
 import TriggerNode from '@app/components/nodes/TriggerNode.vue'
 import NoteNode from '@app/components/nodes/NoteNode.vue'
 import IfElseNode from '@app/components/nodes/IfElseNode.vue'
+import MergeNodeVue from '@app/components/nodes/MergeNode.vue'
 
 import { WorkflowStorage } from '@app/functions/workflow'
 import { backend } from '@app/functions/backend'
@@ -193,6 +201,10 @@ const {
     setCenter,
     getViewport
 } = useVueFlow()
+
+// 保留对 getIntersectingNodes 的引用以避免 lint 报 unused（该函数在上方注释的推开逻辑中使用）
+/* eslint-disable-next-line @typescript-eslint/no-unused-expressions */
+void getIntersectingNodes
 
 const logger = new Logger()
 
@@ -414,7 +426,11 @@ async function loadWorkflowById(id: string) {
             workflowEnabled.value = !!workflow.enabled
 
             // 确保完整恢复节点和边数据
-            nodes.value = workflow.nodes || []
+            // 保证加载后的 merge 节点不可被拖动（drag 禁止）
+            nodes.value = (workflow.nodes || []).map((n: any) => {
+                const isMerge = (n && ((n.data && n.data.nodeType === 'merge') || (n.data && n.data.metadata && n.data.metadata.id === 'merge') || n.type === getExNodeTypes('merge')))
+                return { ...n, draggable: isMerge ? false : (n.draggable ?? true), class: isMerge ? 'no-transition' : (n.class ?? '') }
+            })
             edges.value = workflow.edges || []
 
             // 更新节点 ID 计数器，避免新节点 ID 冲突
@@ -770,6 +786,8 @@ function updateNodeIdCounter() {
 // 拖拽状态
 const draggedNodeType = ref<NodeMetadata | null>(null)
 
+// 拖拽时记录上一次位置，用于计算位移以联动 merge 节点
+const dragLastPositions = ref<Record<string, { x: number; y: number }>>({})
 /**
  * 处理拖拽开始
  */
@@ -808,6 +826,9 @@ function onDrop(event: DragEvent) {
         id: `node-${nodeIdCounter++}`,
         type: getExNodeTypes(draggedNodeType.value.id),
         position,
+        // 如果拖拽的是 merge 类型，创建到画布后禁止拖动
+        draggable: draggedNodeType.value.id === 'merge' ? false : true,
+        class: draggedNodeType.value.id === 'merge' ? 'no-transition' : undefined,
         data: {
             label: draggedNodeType.value.name,
             nodeType: draggedNodeType.value.id,
@@ -826,6 +847,39 @@ function onDrop(event: DragEvent) {
 /**
  * 计算两个节点的重叠区域和推开方向
  */
+
+/*
+ * 之前的推开逻辑（保留注释，必要时取消注释以启用）:
+onNodeDrag(({ node: draggedNode }) => {
+    return // 设置功能还没完成，暂时禁用
+    // eslint-disable-next-line no-unreachable
+    const intersections = getIntersectingNodes(draggedNode)
+
+    if (intersections.length > 0) {
+        // 对每个重叠的节点进行推开
+        for (const intersectingNode of intersections) {
+            // 跳过被拖拽的节点本身
+            if (intersectingNode.id === draggedNode.id) continue
+
+            const direction = calculatePushDirection(draggedNode, intersectingNode)
+
+            // 计算推开的距离（节点宽度 + 一些间距）
+            const pushDistance = 30
+
+            // 计算新位置
+            const newPosition = {
+                x: intersectingNode.position.x + direction.x * pushDistance,
+                y: intersectingNode.position.y + direction.y * pushDistance,
+            }
+
+            // 更新节点位置
+            updateNode(intersectingNode.id, {
+                position: newPosition,
+            })
+        }
+    }
+})
+
 function calculatePushDirection(draggedNode: Node, intersectingNode: Node) {
     // 安全地获取节点尺寸，使用类型断言
     const draggedDimensions = (draggedNode as any).dimensions || { width: 150, height: 50 }
@@ -859,60 +913,154 @@ function calculatePushDirection(draggedNode: Node, intersectingNode: Node) {
 }
 
 /**
- * 处理节点拖拽时的重叠检测和推开
+ * 处理节点拖拽时的重叠检测和推开（当前为增强的 merge 联动实现在下方）
  */
 onNodeDrag(({ node: draggedNode }) => {
-    return // 设置功能还没完成，暂时禁用
-    // eslint-disable-next-line no-unreachable
-    const intersections = getIntersectingNodes(draggedNode)
+    if (!draggedNode || !draggedNode.id) return
 
-    if (intersections.length > 0) {
-        // 对每个重叠的节点进行推开
-        for (const intersectingNode of intersections) {
-            // 跳过被拖拽的节点本身
-            if (intersectingNode.id === draggedNode.id) continue
+    // 找到当前在画布上的节点实例（vue-flow 的 findNode）
+    const current = findNode(draggedNode.id)
+    if (!current) return
 
-            const direction = calculatePushDirection(draggedNode, intersectingNode)
+    // 读取上一次记录的位置
+    const last = dragLastPositions.value[draggedNode.id]
 
-            // 计算推开的距离（节点宽度 + 一些间距）
-            const pushDistance = 30
+    // 如果没有记录，初始化并返回（下一次更新时能计算差值）
+    if (!last) {
+        dragLastPositions.value[draggedNode.id] = { x: draggedNode.position.x, y: draggedNode.position.y }
+        return
+    }
 
-            // 计算新位置
-            const newPosition = {
-                x: intersectingNode.position.x + direction.x * pushDistance,
-                y: intersectingNode.position.y + direction.y * pushDistance,
+    const dx = draggedNode.position.x - last.x
+    const dy = draggedNode.position.y - last.y
+
+    // 没有位移则跳过
+    if (dx === 0 && dy === 0) return
+
+    // 获取该节点的上游节点（incomers），如果有 merge 节点则一并移动
+    const incomers = getIncomers(current)
+    if (incomers && incomers.length > 0) {
+        for (const inc of incomers) {
+            const isMerge = (inc && ((inc.data && inc.data.nodeType === 'merge') || (inc.data && inc.data.metadata && inc.data.metadata.id === 'merge') || inc.type === getExNodeTypes('merge')))
+            if (!isMerge) continue
+
+            // 计算 merge 节点的新位置并更新
+            const newPos = {
+                x: (inc.position?.x || 0) + dx,
+                y: (inc.position?.y || 0) + dy
             }
-
-            // 更新节点位置
-            updateNode(intersectingNode.id, {
-                position: newPosition,
-            })
+            try {
+                updateNode(inc.id, { position: newPos })
+            } catch (e) {
+                // 忽略更新错误
+            }
         }
     }
+
+    // 更新记录位置
+    dragLastPositions.value[draggedNode.id] = { x: draggedNode.position.x, y: draggedNode.position.y }
+})
+
+// 鼠标释放时清理拖拽记录，避免残留影响后续拖拽
+function clearDragLastPositions() {
+    dragLastPositions.value = {}
+}
+
+// 注册全局 mouseup 以在拖拽结束时清理状态
+onMounted(() => {
+    window.addEventListener('mouseup', clearDragLastPositions)
+})
+onUnmounted(() => {
+    window.removeEventListener('mouseup', clearDragLastPositions)
 })
 
 /**
  * 处理连接事件
  */
 function onConnect(params: any) {
-  const targetAlreadyConnected = edges.value.some(
-    e => e.target === params.target
-  )
+    // 连接线右边的 node 已连接的线段数
+    const inputCount = edges.value.filter(
+        e => e.target === params.target
+    ).length
+    // 连接线左边的 node 已连接的线段数
+    const outputCount = edges.value.filter(
+        e => e.source === params.source
+    ).length
 
-  if (targetAlreadyConnected) {
-    logger.add(LogType.ERR, `节点 ${params.target} 已经有输入连接`)
-    return
-  }
+    // 连接线右边的 node
+    const targetNode = findNode(params.target)
+    // 连接线左边的 node
+    const sourceNode = findNode(params.source)
 
-  const data = {} as {[key: string]: any}
+    // 连接线右边的 node 的最大连接数
+    const maxInputCount = targetNode?.data?.metadata?.maxInput || 1
+    // 连接线左边的 node 的最大连接数
+    const maxOutputCount = sourceNode?.data?.metadata?.maxOutput || -1
 
-  addEdges([
-    {
-      ...params,
-      data: data,
-      type: 'base',
-    },
-  ])
+    // 检查连接点
+    if (maxOutputCount !== -1 && outputCount >= maxOutputCount) {
+        logger.add(LogType.ERR, `节点 ${params.source} 的输出连接数已达上限`)
+        return
+    }
+    if (maxInputCount !== -1 && inputCount >= maxInputCount) {
+        logger.add(LogType.ERR, `节点 ${params.target} 的输入连接数已达上限`)
+
+        // 检查 targetNode 的所有的上一个节点中是否有 mergeNode
+        const incomers = getIncomers(targetNode!)
+        let newNode
+        newNode = incomers.find(n => n.type === getExNodeTypes('merge'))
+        // 自动创建一个 MergeNode
+        const mergeNodeRaw: MergeNode = new MergeNode()
+        if(!newNode) {
+            const newPosition = {
+                x: targetNode!.position.x - 45,
+                y: targetNode!.position.y,
+            }
+            newNode = {
+                id: `node-${nodeIdCounter++}`,
+                type: getExNodeTypes(mergeNodeRaw.metadata.id),
+                position: newPosition,
+                draggable: false,
+                class: 'no-transition',
+                data: {
+                    label: mergeNodeRaw.metadata.name,
+                    nodeType: mergeNodeRaw.metadata.id,
+                    metadata: mergeNodeRaw.metadata,
+                    params: {}
+                }
+            }
+            addNodes([newNode])
+        }
+        // 将 targetNode 的所有已有 edge 连接到 MergeNode
+        const existingEdges = edges.value.filter(
+            e => e.target === params.target
+        )
+        const newEdges = existingEdges.map(e => ({
+            ...e,
+            target: newNode.id
+        }))
+        edges.value = edges.value.filter(
+            e => e.target !== params.target
+        )
+        // 添加新的 edges
+        addEdges(newEdges)
+        // 连接 sourceNode 到 MergeNode, 再连接 MergeNode 到 targetNode
+        addEdges([
+            { source: params.source, target: newNode.id, type: 'base' },
+            { source: newNode.id, target: params.target, type: 'base' }
+        ])
+
+        return
+    }
+
+    const data = {} as { [key: string]: any }
+    addEdges([
+        {
+            ...params,
+            data: data,
+            type: 'base',
+        },
+    ])
 }
 
 /**
@@ -1006,6 +1154,11 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
 
 :deep(.vue-flow__node) {
     transition: transform 0.3s ease-out;
+}
+
+/* 对于 merge 节点禁用位移动画，使用 class 'no-transition' 标记 */
+:deep(.vue-flow__node.no-transition) {
+    transition: none !important;
 }
 
 :deep(.vue-flow__node.dragging) {
@@ -1120,6 +1273,19 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
     color: var(--color-font);
     word-break: break-word;
 }
+.flow-value-edit {
+    background: var(--color-card-1);
+    min-height: 20px;
+    padding: 0 10px;
+    border-radius: 7px;
+    margin-left: 30px;
+    text-align: right;
+    border: unset;
+    flex: 1;
+}
+.flow-value-edit:disabled {
+    background: transparent;
+}
 .flow-value.param-preview {
     background: rgba(var(--color-card-1-rgb), 0.7);
     overflow-x: scroll;
@@ -1161,32 +1327,6 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
 .flow-actions .save-btn { background: var(--color-main); color: var(--color-font-r); }
 .flow-actions .cancel-btn { background: var(--color-card-1); }
 </style>
-
-.selected-node-card {
-    margin-top: 12px;
-    padding-top: 8px;
-    border-top: 1px dashed rgba(var(--color-font-rgb), 0.06);
-}
-.param-preview pre {
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 120px;
-    overflow: auto;
-    background: rgba(var(--color-card-2-rgb), 0.05);
-    padding: 8px;
-    border-radius: 6px;
-}
-.param-edit .param-item {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 8px;
-}
-.param-edit input {
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid rgba(var(--color-font-rgb), 0.06);
-}
 <style>
 .node-list .tab-bar {
     --bc-tab-margin: 10px;

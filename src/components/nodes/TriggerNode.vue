@@ -39,7 +39,7 @@ if (triggerName === 'message') {
     ]
 }
 
-const params = [
+const params: NodeParam[] = [
     { key: 'filterParam', label: '过滤参数', type: 'select', options: filterParamOptions },
     {
         key: 'filterMode', label: '过滤模式', type: 'select', options: [
@@ -54,7 +54,7 @@ const params = [
     { key: 'messageType', label: '消息类型', type: 'select', options: [] as any[], visibleWhen: { key: 'filterParam', value: 'message.[*].type' } },
     { key: 'targetId', label: '来源 ID', type: 'input', placeholder: '请输入来源 ID', visibleWhen: { key: 'filterParam', value: 'targetId' } },
     { key: 'includeSelf', label: '包含自己', type: 'switch', defaultValue: false }
-] as unknown as NodeParam[]
+]
 
 const emit = defineEmits(['updateNodeInternals', 'updateTriggerOptions'])
 const { updateNode } = useVueFlow()
@@ -121,10 +121,14 @@ function updateSettings(newValues: Record<string, any>) {
         @update:model-value="updateSettings"
         @close="closeSettings" />
 
-    <Handle type="source" :position="Position.Right" />
+    <Handle class="handle" type="source" :position="Position.Right" />
 </template>
 
 <style scoped>
+.handle {
+    top: 50%;
+}
+
 .trigger-node {
     background: var(--color-card);
     border-radius: 12px;

@@ -20,11 +20,15 @@ export interface NodeParam {
     /** 是否必填 */
     required?: boolean
     /** 提示信息 */
-    placeholder?: string
+    placeholder?: string,
+    /** 说明文字 */
+    tip?: string,
     /** 下拉选项（type 为 select 时使用） */
     options?: Array<{ label: string; value: any }>
     /** 是否支持动态值（从上游节点获取） */
-    dynamic?: boolean
+    dynamic?: boolean,
+    /** 可选：参数显示条件 */
+    visibleWhen?: { key: string; value: any }
 }
 
 /**
@@ -70,6 +74,8 @@ export interface NodeMetadata {
     fullDescription?: string
     /** 节点分类（用于 UI 展示分组） */
     category: NodeCategory
+    /** 是否隐藏节点（不在节点列表中显示） */
+    hidden?: boolean
     /** 最大输入连接数，-1 表示不限制 */
     maxInput?: number
     /** 最大输出连接数，-1 表示不限制 */

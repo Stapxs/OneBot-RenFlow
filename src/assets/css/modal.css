@@ -1,0 +1,211 @@
+.modal-overlay {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(var(--color-card-rgb), 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.modal-dialog {
+    width: 420px;
+    background: rgba(var(--color-card-rgb), 0.5);
+    backdrop-filter: blur(20px);
+    color: var(--color-font);
+    border-radius: 10px;
+    box-shadow: 0 0 5px var(--color-shader);
+    overflow: hidden;
+    padding: 10px;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 20px 15px 20px;
+    border-bottom: 1px solid var(--color-card-2);
+    gap: 12px;
+}
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--color-font);
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+}
+
+.modal-body {
+    font-size: 0.9rem;
+    padding: 16px
+}
+
+.modal-footer {
+    background: rgba(var(--color-card-1-rgb), 0.5);
+    border-radius: 0 0 7px 7px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 15px 20px;
+    margin: 0 -10px -10px -10px;
+}
+
+.modal-btn {
+    padding: 6px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    font-weight: 500;
+}
+
+.modal-btn-cancel {
+    background: var(--color-card-1);
+    color: var(--color-font-2)
+}
+
+.modal-btn-confirm {
+    background: var(--color-main);
+    color: var(--color-font-r)
+}
+
+.modal-close {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 14px
+}
+
+.modal-enter-active {
+    transition: opacity 0.2s ease-out;
+}
+
+.modal-leave-active {
+    transition: opacity 0.2s ease-in;
+}
+
+.modal-leave-to {
+    opacity: 0;
+}
+
+.modal-enter-active .modal-dialog {
+    animation: panelSlideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal-leave-active .modal-dialog {
+    animation: panelSlideDown 0.2s cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+@keyframes panelSlideUp {
+    from {
+        transform: translateY(30px) scale(0.95);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes panelSlideDown {
+    from {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+
+    to {
+        transform: translateY(20px) scale(0.98);
+        opacity: 0;
+    }
+}
+
+.param-item {
+    flex-direction: column;
+    display: flex;
+    gap: 4px;
+}
+
+.param-item > label,
+.param-item .switch-container > label,
+.node-settings-btn button {
+    color: var(--color-font);
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.param-item > label.required::after {
+    content: ' *';
+    color: #ff4444;
+}
+
+.param-item input[type="text"],
+.param-item input[type="number"],
+.param-item input[type="password"],
+.param-item textarea,
+.param-item select {
+    background: rgba(var(--color-card-2-rgb), 0.5);
+    border: 1px solid rgba(var(--color-font-rgb), 0.1);
+    color: var(--color-font);
+    border-radius: 5px;
+    padding: 0 8px;
+    outline: none;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.param-item input[type="text"]:focus,
+.param-item input[type="number"]:focus,
+.param-item textarea:focus,
+.param-item select:focus {
+    border-color: var(--color-main);
+    background: rgba(var(--color-card-2-rgb), 0.8);
+}
+
+.param-item input[type="text"],
+.param-item input[type="number"],
+.param-item input[type="password"],
+.param-item select {
+    height: 35px;
+}
+
+.param-item textarea {
+    resize: vertical;
+    min-height: 60px;
+    font-family: inherit;
+}
+
+.param-item select {
+    cursor: pointer;
+}
+
+.param-item .switch-container {
+    align-items: center;
+    display: flex;
+}
+.param-item .switch-container label:first-child {
+    flex: 1;
+}
+.param-item .ss-switch {
+    --switch-dot-border: 4px;
+    --switch-dot-margin: 5px;
+    --switch-height: 20px;
+    margin-left: 10px;
+    margin-bottom: 0;
+    min-width: 35px;
+}
+.param-item .ss-switch > div > div {
+    margin-left: 1px;
+    margin-top: 1px;
+}
+.param-item .ss-switch input:checked ~ div > div {
+    border: var(--switch-dot-border) solid #fff;
+    margin-left: calc(100% - var(--switch-height) + var(--switch-dot-margin) - 4px);
+}

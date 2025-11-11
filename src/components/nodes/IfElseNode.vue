@@ -8,7 +8,7 @@ import NodeSettingsPanel from '../NodeSettingsPanel.vue'
 const props = defineProps<NodeProps>()
 const isDev = import.meta.env.DEV
 
-const { removeNodes, updateNode } = useVueFlow()
+const { removeNodes, updateNode, findNode, getIncomers, getOutgoers } = useVueFlow()
 
 // 节点参数值：优先从节点 data.params 恢复已保存的值
 const paramValues = ref<Record<string, any>>({ ...(props.data?.params || {}) })
@@ -75,9 +75,34 @@ const updateSettings = (newValues: Record<string, any>) => {
     updateNodeData(paramValues.value)
 }
 
-// 删除节点
+// 删除节点：同时删除上游的 merge 节点（如果存在）
 const deleteNode = () => {
-    removeNodes([props.id])
+    try {
+        const current = findNode(props.id)
+        const toRemove = new Set<string>()
+        toRemove.add(props.id)
+        if (current && (current as any)) {
+            const incomers = getIncomers(current)
+            for (const inc of incomers) {
+                const isMerge = !!(
+                    (inc.data && inc.data.nodeType === 'merge') ||
+                    (inc.data && inc.data.metadata && inc.data.metadata.id === 'merge')
+                )
+                if (!isMerge || !inc.id) continue
+                try {
+                    const outgoers = getOutgoers(inc) || []
+                    const outIds = outgoers.map((o: any) => o.id)
+                    const safeToRemove = outIds.length === 0 || (outIds.length === 1 && outIds[0] === props.id)
+                    if (safeToRemove) toRemove.add(inc.id)
+                } catch (e) {
+                    // ignore and don't remove
+                }
+            }
+        }
+        removeNodes(Array.from(toRemove))
+    } catch (e) {
+        removeNodes([props.id])
+    }
 }
 
 defineEmits(['updateNodeInternals'])

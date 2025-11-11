@@ -135,6 +135,12 @@ pub fn run() {
             commands::win::win_unmaximize,
             commands::win::win_toggle_maximize,
             commands::win::win_is_maximized,
+            commands::opt::opt_get_system_info,
+            commands::opt::opt_store,
+            commands::opt::opt_save_all,
+            commands::opt::opt_get_all,
+            commands::opt::opt_get,
+            commands::opt::opt_clear_all
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
