@@ -1,42 +1,33 @@
 <script setup lang="ts">
 import { Position, Handle, useVueFlow } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
-import type { NodeParam } from 'renflow.runner'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useNodeParams, useSafeDelete } from './nodes/useNodeHelpers'
 import NodeSettingsPanel from './NodeSettingsPanel.vue'
 import ConditionParam from './ConditionParam.vue'
 
 const props = defineProps<NodeProps>()
 const isDev = import.meta.env.DEV
 
-const { removeNodes, getIncomers, findNode, updateNode, getOutgoers } = useVueFlow()
+const { getIncomers, findNode } = useVueFlow()
 
-// 节点参数值
-const paramValues = ref<Record<string, any>>(props.data?.params || {})
+// 使用通用参数管理组合函数
+const { paramValues, params, updateParam, updateSettings } = useNodeParams(props as any)
 
 // 设置面板显示状态
 const showSettingsPanel = ref(false)
+const openSettings = () => { showSettingsPanel.value = true }
+const closeSettings = () => { showSettingsPanel.value = false }
 
-// 从 metadata 获取参数配置
-const params = computed<NodeParam[]>(() => {
-    return props.data?.metadata?.params || []
-})
-
-// 获取可用参数（来自上游节点的输出）
+// 额外计算属性（基于 params）
 const availableParameters = computed(() => {
     const parameters: Array<{ label: string; value: string }> = []
-
-    // 获取当前节点
     const currentNode = findNode(props.id)
     if (!currentNode) return parameters
-
-    // 获取所有上游节点
     const incomers = getIncomers(currentNode)
-
     for (const incomer of incomers) {
         const metadata = incomer.data?.metadata
         if (metadata?.outputSchema) {
-            // 添加上游节点的输出字段
             for (const field of metadata.outputSchema) {
                 parameters.push({
                     label: `${incomer.data?.label || incomer.id}.${field.label}`,
@@ -45,115 +36,40 @@ const availableParameters = computed(() => {
             }
         }
     }
-
     return parameters
 })
 
-// 判断是否需要显示设置按钮 / 是否只显示设置按钮
-const settingsParam = computed(() => params.value.find(p => p.type === 'settings'))
+const settingsParam = computed(() => params.value.find((p: any) => p.type === 'settings'))
 const settingsRequired = computed(() => !!settingsParam.value && settingsParam.value.required === true)
-const nonSettingsCount = computed(() => params.value.filter(p => p.type !== 'settings').length)
-
-// 是否显示设置按钮（若存在 settings 参数或参数过多则显示）
+const nonSettingsCount = computed(() => params.value.filter((p: any) => p.type !== 'settings').length)
 const shouldShowSettings = computed(() => {
     return !!settingsParam.value || nonSettingsCount.value > 5
 })
-
-// 是否隐藏节点上的参数（只有在 settings.required 为 true 或 参数过多 时隐藏）
 const hideParams = computed(() => {
     return settingsRequired.value || nonSettingsCount.value > 5
 })
-
-// 显示在节点上的参数（支持 pin：为 true 的参数无论 hide 都会显示）
 const displayParams = computed(() => {
-    const nonSettings = params.value.filter(p => p.type !== 'settings')
+    const nonSettings = params.value.filter((p: any) => p.type !== 'settings')
     if (hideParams.value) {
-        // 仅显示被 pin 的参数（保持向后兼容）
-        return nonSettings.filter((p: any) => Boolean(p.pin))
+        return nonSettings.filter((p: any) => Boolean((p as any).pin))
     }
     return nonSettings
 })
+const settingsParams = computed(() => params.value.filter((p: any) => p.type !== 'settings' && !(p as any).pin))
 
-// 设置面板中的参数(排除 settings 类型并且排除被 pin 的参数)
-const settingsParams = computed(() => {
-    return params.value.filter(p => p.type !== 'settings' && !(p as any).pin)
-})
-
-// 更新节点数据的辅助函数
-const updateNodeData = (newParams: Record<string, any>) => {
-    updateNode(props.id, {
-        data: {
-            ...props.data,
-            params: { ...newParams }
-        }
-    })
-}
-
-// 初始化参数默认值(只在参数值未设置时应用默认值)
-params.value.forEach(param => {
-    if (paramValues.value[param.key] === undefined && param.defaultValue !== undefined) {
-        paramValues.value[param.key] = param.defaultValue
-        // 同步到 data.params
-        updateNodeData(paramValues.value)
+// 当外部通过 updateNode 修改 data.params 时，需要同步本地的 paramValues，
+// 否则 UI（input/select 等）不会反映更新（例如 undo/redo 回放）。
+watch(() => props.data?.params, (newParams) => {
+    if (!newParams) {
+        paramValues.value = {}
+        return
     }
-})
+    // 深拷贝以断开引用，并保持响应性
+    paramValues.value = JSON.parse(JSON.stringify(newParams))
+}, { deep: true, immediate: true })
 
-// 更新参数值
-const updateParam = (key: string, value: any) => {
-    paramValues.value[key] = value
-    updateNodeData(paramValues.value)
-}
-
-// 打开设置面板
-const openSettings = () => {
-    showSettingsPanel.value = true
-}
-
-// 关闭设置面板
-const closeSettings = () => {
-    showSettingsPanel.value = false
-}
-
-// 更新设置
-const updateSettings = (newValues: Record<string, any>) => {
-    paramValues.value = { ...newValues }
-    updateNodeData(paramValues.value)
-}
-
-// 删除节点：如果当前节点的上游包含 merge 节点，也一并删除它们
-const deleteNode = () => {
-    try {
-        const current = findNode(props.id)
-        const toRemove = new Set<string>()
-        toRemove.add(props.id)
-
-        if (current) {
-            const incomers = getIncomers(current)
-            for (const inc of incomers) {
-                const isMerge = !!(
-                    (inc.data && inc.data.nodeType === 'merge') ||
-                    (inc.data && inc.data.metadata && inc.data.metadata.id === 'merge')
-                )
-                if (!isMerge || !inc.id) continue
-
-                // 仅在 merge 节点不会被其它下游共享时才删除它：
-                // 若 merge 的 outgoers 只包含当前节点或为空，则安全删除；否则跳过
-                try {
-                    const outgoers = getOutgoers(inc) || []
-                    const outIds = outgoers.map((o: any) => o.id)
-                    const safeToRemove = outIds.length === 0 || (outIds.length === 1 && outIds[0] === props.id)
-                    if (safeToRemove) toRemove.add(inc.id)
-                } catch (e) {
-                    // 如果无法获取 outgoers，默认不删除以保证安全
-                }
-            }
-        }
-
-        removeNodes(Array.from(toRemove))
-    } catch (e) {
-        removeNodes([props.id])
-    }
-}
+// 使用通用删除逻辑
+const { deleteNode } = useSafeDelete(props as any)
 
 defineEmits(['updateNodeInternals'])
 </script>

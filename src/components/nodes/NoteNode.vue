@@ -1,27 +1,27 @@
 <script setup lang="ts">
 import { useVueFlow } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
-import { ref, computed, watch } from 'vue'
+import { computed } from 'vue'
+import { useNodeParams } from './useNodeHelpers'
 
 const props = defineProps<NodeProps>()
 const { removeNodes } = useVueFlow()
-const emit = defineEmits(['update:data', 'updateNodeInternals'])
 
-// 节点参数值
-const title = ref(props.data?.params?.title || '注释')
-const content = ref(props.data?.params?.content || '')
-const color = ref(props.data?.params?.color || 'yellow')
+// 使用通用参数管理
+const { paramValues, updateParam } = useNodeParams(props as any)
 
-// 监听参数变化并更新到节点 data
-watch([title, content, color], () => {
-    if (props.data) {
-        const newData = { ...props.data, params: {
-            title: title.value,
-            content: content.value,
-            color: color.value
-        }}
-        emit('update:data', newData)
-    }
+// 将本地 title/content/color 绑定到 paramValues，自动通过 updateParam 持久化
+const title = computed({
+    get: () => paramValues.value.title || '注释',
+    set: (v: string) => updateParam('title', v)
+})
+const content = computed({
+    get: () => paramValues.value.content || '',
+    set: (v: string) => updateParam('content', v)
+})
+const color = computed({
+    get: () => paramValues.value.color || 'yellow',
+    set: (v: string) => updateParam('color', v)
 })
 
 // 颜色主题映射

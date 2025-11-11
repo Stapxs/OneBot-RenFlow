@@ -1,109 +1,31 @@
 <script setup lang="ts">
-import { Position, Handle, useVueFlow } from '@vue-flow/core'
+import { Position, Handle } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
-import type { NodeParam } from 'renflow.runner'
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
+import { useNodeParams, useSafeDelete } from './useNodeHelpers'
 import NodeSettingsPanel from '../NodeSettingsPanel.vue'
 
 const props = defineProps<NodeProps>()
 const isDev = import.meta.env.DEV
 
-const { removeNodes, updateNode, findNode, getIncomers, getOutgoers } = useVueFlow()
+// useVueFlow not required here; delete handled by useSafeDelete
 
-// 节点参数值：优先从节点 data.params 恢复已保存的值
-const paramValues = ref<Record<string, any>>({ ...(props.data?.params || {}) })
+// 使用通用参数管理
+const { paramValues, params, updateParam, updateSettings } = useNodeParams(props as any)
 
-// 节点标题
-const title = ref(props.data?.params?.title || '条件分支')
+// 节点标题，绑定到 paramValues.title
+const title = computed({
+    get: () => paramValues.value.title || '条件分支',
+    set: (v: string) => updateParam('title', v)
+})
 
 // 设置面板显示状态
 const showSettingsPanel = ref(false)
+const openSettings = () => { showSettingsPanel.value = true }
+const closeSettings = () => { showSettingsPanel.value = false }
 
-// 从 metadata 获取参数配置
-const params = computed<NodeParam[]>(() => {
-    return props.data?.metadata?.params || []
-})
-
-// 初始化参数默认值（在已有保存值的基础上填充缺省值）
-const initParamDefaults = () => {
-    params.value.forEach(param => {
-        if (param.defaultValue !== undefined && paramValues.value[param.key] === undefined) {
-            paramValues.value[param.key] = param.defaultValue
-        }
-    })
-}
-
-// 首次填充默认值
-initParamDefaults()
-
-// 如果外部节点 data.params 发生变化（例如从存储加载），同步到本地 paramValues
-watch(() => props.data?.params, (newVal) => {
-    paramValues.value = { ...(newVal || {}) }
-    initParamDefaults()
-}, { deep: true })
-
-// 更新节点数据的辅助函数
-const updateNodeData = (newParams: Record<string, any>) => {
-    updateNode(props.id, {
-        data: {
-            ...props.data,
-            params: { ...newParams }
-        }
-    })
-}
-
-// 监听标题变化并更新到节点 data
-watch(title, () => {
-    paramValues.value.title = title.value
-    updateNodeData(paramValues.value)
-})
-
-// 打开设置面板
-const openSettings = () => {
-    showSettingsPanel.value = true
-}
-
-// 关闭设置面板
-const closeSettings = () => {
-    showSettingsPanel.value = false
-}
-
-// 更新设置
-const updateSettings = (newValues: Record<string, any>) => {
-    paramValues.value = { ...newValues }
-    title.value = newValues.title || '条件分支'
-    updateNodeData(paramValues.value)
-}
-
-// 删除节点：同时删除上游的 merge 节点（如果存在）
-const deleteNode = () => {
-    try {
-        const current = findNode(props.id)
-        const toRemove = new Set<string>()
-        toRemove.add(props.id)
-        if (current && (current as any)) {
-            const incomers = getIncomers(current)
-            for (const inc of incomers) {
-                const isMerge = !!(
-                    (inc.data && inc.data.nodeType === 'merge') ||
-                    (inc.data && inc.data.metadata && inc.data.metadata.id === 'merge')
-                )
-                if (!isMerge || !inc.id) continue
-                try {
-                    const outgoers = getOutgoers(inc) || []
-                    const outIds = outgoers.map((o: any) => o.id)
-                    const safeToRemove = outIds.length === 0 || (outIds.length === 1 && outIds[0] === props.id)
-                    if (safeToRemove) toRemove.add(inc.id)
-                } catch (e) {
-                    // ignore and don't remove
-                }
-            }
-        }
-        removeNodes(Array.from(toRemove))
-    } catch (e) {
-        removeNodes([props.id])
-    }
-}
+// 删除节点逻辑（通用）
+const { deleteNode } = useSafeDelete(props as any)
 
 defineEmits(['updateNodeInternals'])
 </script>

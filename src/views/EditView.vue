@@ -6,9 +6,13 @@
                 <font-awesome-icon :icon="['fas', 'fa-floppy-disk']" />
                 保存
             </button>
-            <button class="toolbar-btn" @click="exportExecutionData">
-                <font-awesome-icon :icon="['fas', 'fa-file-export']" />
-                导出独立配置
+            <button class="toolbar-btn" title="撤销 (Ctrl+Z)" @click="undo">
+                <font-awesome-icon :icon="['fas', 'fa-rotate-left']" />
+                撤销
+            </button>
+            <button class="toolbar-btn" title="重做 (Ctrl+Shift+Z)" @click="redo">
+                <font-awesome-icon :icon="['fas', 'fa-rotate-right']" />
+                重做
             </button>
             <button class="toolbar-btn execute-btn" @click="executeWorkflow">
                 <font-awesome-icon :icon="['fas', workflowEnabled ? 'fa-toggle-on' : 'fa-toggle-off']" />
@@ -197,6 +201,8 @@ const {
     updateNode,
     addEdges,
     addNodes,
+    removeNodes,
+    removeEdges,
     project,
     setCenter,
     getViewport
@@ -207,6 +213,16 @@ const {
 void getIntersectingNodes
 
 const logger = new Logger()
+
+// 工作流相关的响应式状态
+// workflowInfo: 当前工作流的元信息（id/name/trigger 等）
+// localFlow: 本地用于编辑的副本（用于右侧编辑面板）
+// editingFlow: 是否处于编辑面板打开状态
+// workflowEnabled: 当前工作流是否启用
+const workflowInfo = ref<any>({})
+const localFlow = ref<any>({})
+const editingFlow = ref<boolean>(false)
+const workflowEnabled = ref<boolean>(false)
 
 // 初始化 renflow.runner（集中初始化入口）
 init(LogLevel.DEBUG, {
@@ -227,24 +243,6 @@ init(LogLevel.DEBUG, {
 const nodeManager = runnerNodeManager
 const workflowConverter = new WorkflowConverter()
 
-// 当前工作流启用状态
-const workflowEnabled = ref(false)
-
-// 工作流信息
-const workflowInfo = ref({
-    id: '' as string | undefined,
-    triggerType: '',
-    triggerTypeLabel: '',
-    triggerName: '',
-    triggerLabel: '',
-    name: '',
-    description: ''
-})
-
-// 右侧 flow 信息的编辑状态与临时副本
-const editingFlow = ref(false)
-const localFlow = ref({ ...workflowInfo.value })
-
 // 打开编辑器（复制当前值到本地副本）
 function openFlowEditor() {
     localFlow.value = { ...workflowInfo.value }
@@ -256,16 +254,11 @@ function cancelFlowEdit() {
 }
 
 async function saveFlowEdit() {
-    // 把本地副本合并回 workflowInfo
     workflowInfo.value = { ...workflowInfo.value, ...localFlow.value }
-
-    // 调用已有的保存逻辑以持久化（也会保存当前节点/边）
     await saveWorkflow()
-
     editingFlow.value = false
 }
 
-// 当外部 workflowInfo 变化时，如果不在编辑状态则同步本地副本
 watch(workflowInfo, (newVal) => {
     if (!editingFlow.value) {
         localFlow.value = { ...newVal }
@@ -292,7 +285,6 @@ onMounted(async () => {
         if (query.id) {
             await loadWorkflowById(query.id as string)
         } else {
-            // 创建触发器节点，并为节点附加 metadata 以便前端能够识别其输出结构
             const triggerMeta: any = {
                 id: 'trigger',
                 name: '触发器',
@@ -334,18 +326,23 @@ onMounted(async () => {
                 }
             }
 
-            nodes.value = [{
-                id: workflowInfo.value.triggerName,
-                type: 'trigger',
-                position: { x: 0, y: 0 },
-                data: {
-                    triggerName: workflowInfo.value.triggerName,
-                    triggerLabel: workflowInfo.value.triggerLabel,
-                    metadata: triggerMeta
-                }
-            }]
-            // 新建时默认未启用
-            workflowEnabled.value = false
+            applyWithoutHistory(() => {
+                nodes.value = [{
+                    id: workflowInfo.value.triggerName,
+                    type: 'trigger',
+                    position: { x: 0, y: 0 },
+                    data: {
+                        triggerName: workflowInfo.value.triggerName,
+                        triggerLabel: workflowInfo.value.triggerLabel,
+                        metadata: triggerMeta
+                    }
+                }]
+                // 新建时默认未启用
+                workflowEnabled.value = false
+                undoStack.length = 0
+                redoStack.length = 0
+                snapshotMaps()
+            })
         }
 
         // 更新节点 ID 计数器
@@ -363,10 +360,6 @@ onMounted(async () => {
  */
 async function saveWorkflow() {
     try {
-        // 调试：打印当前 nodes 数据
-        logger.add(LogType.DEBUG, '准备保存的 nodes:', JSON.parse(JSON.stringify(nodes.value)))
-        logger.add(LogType.DEBUG, '准备保存的 edges:', JSON.parse(JSON.stringify(edges.value)))
-
         const workflowData: Partial<WorkflowData> = {
             id: workflowInfo.value.id,
             name: workflowInfo.value.name,
@@ -408,10 +401,6 @@ async function loadWorkflowById(id: string) {
     try {
         const workflow = await WorkflowStorage.load(id)
         if (workflow) {
-            logger.add(LogType.INFO, '加载的工作流数据:', workflow)
-            logger.add(LogType.DEBUG, '加载的 nodes:', workflow.nodes)
-            logger.add(LogType.DEBUG, '加载的 edges:', workflow.edges)
-
             workflowInfo.value = {
                 id: workflow.id,
                 name: workflow.name,
@@ -426,7 +415,6 @@ async function loadWorkflowById(id: string) {
             workflowEnabled.value = !!workflow.enabled
 
             // 确保完整恢复节点和边数据
-            // 保证加载后的 merge 节点不可被拖动（drag 禁止）
             nodes.value = (workflow.nodes || []).map((n: any) => {
                 const isMerge = (n && ((n.data && n.data.nodeType === 'merge') || (n.data && n.data.metadata && n.data.metadata.id === 'merge') || n.type === getExNodeTypes('merge')))
                 return { ...n, draggable: isMerge ? false : (n.draggable ?? true), class: isMerge ? 'no-transition' : (n.class ?? '') }
@@ -445,61 +433,6 @@ async function loadWorkflowById(id: string) {
     } catch (error) {
         toast.error('加载工作流失败')
         logger.error(error as unknown as Error, '加载工作流失败')
-    }
-}
-
-/**
- * 导出独立配置
- */
-function exportExecutionData() {
-    try {
-        // 检查是否有节点
-        if (nodes.value.length === 0) {
-            toast.error('当前工作流为空，无法导出')
-            return
-        }
-
-        // 构建 VueFlowWorkflow 数据
-        const vueFlowWorkflow: VueFlowWorkflow = {
-            id: workflowInfo.value.id || `workflow_temp_${Date.now()}`,
-            name: workflowInfo.value.name || '未命名工作流',
-            description: workflowInfo.value.description || '',
-            triggerType: workflowInfo.value.triggerType,
-            triggerTypeLabel: workflowInfo.value.triggerTypeLabel,
-            triggerName: workflowInfo.value.triggerName,
-            triggerLabel: workflowInfo.value.triggerLabel,
-            nodes: JSON.parse(JSON.stringify(nodes.value)),
-            edges: JSON.parse(JSON.stringify(edges.value)),
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-        }
-
-        // 转换为执行数据
-        const executionData = workflowConverter.convert(vueFlowWorkflow)
-
-        // 验证执行数据
-        const validation = workflowConverter.validate(executionData)
-        if (!validation.valid) {
-            logger.add(LogType.ERR, '工作流验证失败:', validation.errors)
-            toast.error(`工作流验证失败:\n${validation.errors.join('\n')}`)
-            return
-        }
-
-        // 导出为 JSON 文件
-        const jsonStr = JSON.stringify(executionData, null, 2)
-        const blob = new Blob([jsonStr], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `${executionData.name}_execution.json`
-        a.click()
-        URL.revokeObjectURL(url)
-
-        toast.success('执行数据已导出')
-        logger.add(LogType.INFO, '导出的执行数据:', executionData)
-    } catch (error) {
-        toast.error('导出独立配置失败')
-        logger.error(error as unknown as Error, '导出独立配置失败')
     }
 }
 
@@ -560,11 +493,10 @@ function highlightNode(nodeId: string, highlight: boolean) {
     }
 }
 
-// 在桌面模式下监听执行事件以实现可视化（从 ListView 发出的事件）
 onMounted(async () => {
     try {
         if (backend.isDesktop()) {
-            // 监听编辑器打开请求（当 ListView 请求打开已存在的编辑窗口时）
+            // 监听编辑器打开请求
             backend.addListener('workflow:open', async (evt: any) => {
                 const payload = evt?.payload || {}
                 const id = payload.id
@@ -701,6 +633,225 @@ const filteredNodes = computed(() => {
 const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 
+// ---- undo/redo 历史管理 ----
+const undoStack: any[] = []
+const redoStack: any[] = []
+let isApplyingHistory = false
+
+// 快照用于 diff 检测（id -> node/edge）
+let prevNodesMap: Record<string, any> = {}
+let prevEdgesMap: Record<string, any> = {}
+
+function snapshotMaps() {
+    prevNodesMap = {}
+    prevEdgesMap = {}
+    for (const n of nodes.value) prevNodesMap[(n as any).id] = JSON.parse(JSON.stringify(n))
+    for (const e of edges.value) prevEdgesMap[(e as any).id] = JSON.parse(JSON.stringify(e))
+}
+
+// 在加载工作流或回放历史时使用，避免产生新的历史记录
+function applyWithoutHistory(fn: () => void) {
+    isApplyingHistory = true
+    try {
+        fn()
+    } finally {
+        setTimeout(() => { isApplyingHistory = false }, 0)
+    }
+}
+
+function pushAction(action: any) {
+    undoStack.push(action)
+    redoStack.length = 0
+}
+
+function applyAction(action: any, _isRedo = false) {
+    applyWithoutHistory(() => {
+        switch (action.type) {
+            case 'addNode':
+                addNodes([action.node])
+                if (action.edges && Array.isArray(action.edges) && action.edges.length > 0) {
+                    addEdges(action.edges)
+                }
+                break
+            case 'removeNode':
+                try {
+                    removeNodes([action.node.id])
+                } catch (e) {
+                    nodes.value = nodes.value.filter(n => (n as any).id !== action.node.id)
+                }
+                break
+            case 'moveNode':
+                if (action && action.to) {
+                    updateNode(action.id, { position: action.to })
+                }
+                break
+            case 'updateNode':
+                if (action && action.to) {
+                    updateNode(action.id, { data: action.to })
+                }
+                break
+            case 'addEdge':
+                addEdges([action.edge])
+                break
+            case 'removeEdge':
+                try {
+                    removeEdges([action.edge.id])
+                } catch (e) {
+                    edges.value = edges.value.filter((ed: any) => ed.id !== action.edge.id)
+                }
+                break
+            default:
+                logger.add(LogType.ERR, '未知历史操作', action)
+        }
+    })
+}
+
+function undo() {
+    if (undoStack.length === 0) return
+    const action = undoStack.pop()
+    // 计算逆操作并执行
+    const inverse = (() => {
+        switch (action.type) {
+            case 'addNode': return { type: 'removeNode', node: action.node }
+            case 'removeNode': return { type: 'addNode', node: action.node, edges: action.edges }
+            case 'moveNode': return { type: 'moveNode', id: action.id, from: action.to, to: action.from }
+            case 'updateNode': return { type: 'updateNode', id: action.id, from: action.to, to: action.from }
+            case 'addEdge': return { type: 'removeEdge', edge: action.edge }
+            case 'removeEdge': return { type: 'addEdge', edge: action.edge }
+            default: return null
+        }
+    })()
+    if (inverse) {
+        applyAction(inverse, false)
+        redoStack.push(action)
+    }
+}
+
+function redo() {
+    if (redoStack.length === 0) return
+    const action = redoStack.pop()
+    if (!action) return
+    applyAction(action, true)
+    undoStack.push(action)
+}
+
+// 监听键盘快捷键 Ctrl+Z / Ctrl+Shift+Z
+function onKeyDown(e: KeyboardEvent) {
+    const isMac = navigator.platform.toLowerCase().includes('mac')
+    const ctrl = isMac ? e.metaKey : e.ctrlKey
+    if (!ctrl) return
+    if (e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) redo()
+        else undo()
+    }
+}
+onMounted(() => window.addEventListener('keydown', onKeyDown))
+onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
+
+// 初始快照
+onMounted(() => {
+    snapshotMaps()
+})
+
+// 监听 nodes/edges 变化并记录历史（注意：在回放历史或加载时会跳过）
+watch(nodes, (newNodes) => {
+    if (isApplyingHistory) {
+        snapshotMaps()
+        return
+    }
+
+    const newMap: Record<string, any> = {}
+    for (const n of newNodes) newMap[(n as any).id] = JSON.parse(JSON.stringify(n))
+
+    // 新增节点
+    for (const id of Object.keys(newMap)) {
+        if (!prevNodesMap[id]) {
+            pushAction({ type: 'addNode', node: newMap[id] })
+        }
+    }
+
+    // 删除节点（同时捕获该节点相关的边，便于撤销时恢复）
+    for (const id of Object.keys(prevNodesMap)) {
+        if (!newMap[id]) {
+            // 收集该节点相关的边
+            const relatedEdges = Object.values(prevEdgesMap).filter((ed: any) => ed.source === id || ed.target === id)
+            pushAction({ type: 'removeNode', node: prevNodesMap[id], edges: relatedEdges })
+        }
+    }
+
+    // 变更检测（位置、data）
+    for (const id of Object.keys(newMap)) {
+        if (!prevNodesMap[id]) continue
+        const prev = prevNodesMap[id]
+        const cur = newMap[id]
+        // 位置变化
+        const prevPos = prev.position || { x: 0, y: 0 }
+        const curPos = cur.position || { x: 0, y: 0 }
+        if (prevPos.x !== curPos.x || prevPos.y !== curPos.y) {
+            // 合并连续的 move 操作（如果最近一条 undo 是相同节点的 move）
+            // 合并节点不记录 move 操作
+            const node = nodes.value.find(n => (n as any).id === id)
+            if (node && node.class === 'no-transition') {
+                continue
+            }
+            const last = undoStack[undoStack.length - 1]
+            if (last && last.type === 'moveNode' && last.id === id) {
+                // 更新 last.to
+                last.to = curPos
+            } else {
+                pushAction({ type: 'moveNode', id, from: prevPos, to: curPos })
+            }
+        }
+
+        // data 变化（参数等）
+        const prevData = JSON.stringify(prev.data || {})
+        const curData = JSON.stringify(cur.data || {})
+        if (prevData !== curData) {
+            pushAction({ type: 'updateNode', id, from: JSON.parse(prevData), to: JSON.parse(curData) })
+        }
+    }
+
+    snapshotMaps()
+}, { deep: true })
+
+watch(edges, (newEdges) => {
+    if (isApplyingHistory) {
+        snapshotMaps()
+        return
+    }
+
+    const newMap: Record<string, any> = {}
+    for (const e of newEdges) newMap[(e as any).id] = JSON.parse(JSON.stringify(e))
+
+    // 新增边
+    for (const id of Object.keys(newMap)) {
+        if (!prevEdgesMap[id]) {
+            // 如果最近的节点删除操作包含此边，则跳过（避免重复记录）
+            const last = undoStack[undoStack.length - 1]
+            if (last && last.type === 'removeNode' && Array.isArray(last.edges) && last.edges.find((e: any) => e.id === id)) {
+                continue
+            }
+            pushAction({ type: 'addEdge', edge: newMap[id] })
+        }
+    }
+
+    // 删除边
+    for (const id of Object.keys(prevEdgesMap)) {
+        if (!newMap[id]) {
+            // 如果最近的节点删除操作包含此边，则跳过（该边已作为节点删除的一部分被记录）
+            const last = undoStack[undoStack.length - 1]
+            if (last && last.type === 'removeNode' && Array.isArray(last.edges) && last.edges.find((e: any) => e.id === id)) {
+                continue
+            }
+            pushAction({ type: 'removeEdge', edge: prevEdgesMap[id] })
+        }
+    }
+
+    snapshotMaps()
+}, { deep: true })
+
+
 // 当前选中节点（Vue Flow 在被选中时会在节点对象上标记 selected）
 const selectedNode = computed(() => {
     return (nodes.value as any[]).find(n => (n as any).selected) as (Node & { data?: any }) | undefined
@@ -781,6 +932,39 @@ function updateNodeIdCounter() {
     })
     // 设置计数器为最大值 + 1
     nodeIdCounter = maxId + 1
+}
+
+/**
+ * 矫正目标节点的上游 merge 节点位置，使其与目标节点保持一致的偏移
+ * nodeId: 目标节点 ID
+ * targetPos: 可选的目标位置（如果未提供则使用当前节点的位置）
+ */
+function correctUpstreamMergeNodes(nodeId: string, targetPos?: { x: number; y: number }) {
+    try {
+        const target = findNode(nodeId)
+        if (!target) return
+        const pos = targetPos || target.position || { x: 0, y: 0 }
+        const incomers = getIncomers(target)
+        if (!incomers || incomers.length === 0) return
+
+        for (const inc of incomers) {
+            const isMerge = (inc && ((inc.data && inc.data.nodeType === 'merge') || (inc.data && inc.data.metadata && inc.data.metadata.id === 'merge') || inc.type === getExNodeTypes('merge')))
+            if (!isMerge) continue
+
+            const desiredPos = {
+                x: (pos.x || 0) - 45,
+                y: (pos.y || 0)
+            }
+
+            try {
+                updateNode(inc.id, { position: desiredPos })
+            } catch (e) {
+                // 忽略单个更新失败
+            }
+        }
+    } catch (e) {
+        // 保证不抛出异常影响编辑器
+    }
 }
 
 // 拖拽状态
@@ -927,6 +1111,15 @@ onNodeDrag(({ node: draggedNode }) => {
 
     // 如果没有记录，初始化并返回（下一次更新时能计算差值）
     if (!last) {
+        // 使用共用方法在第一次移动前矫正上游 merge 节点位置
+        try {
+            applyWithoutHistory(() => {
+                correctUpstreamMergeNodes(draggedNode.id, draggedNode.position)
+            })
+        } catch (e) {
+            // 忽略错误以保证拖拽体验
+        }
+
         dragLastPositions.value[draggedNode.id] = { x: draggedNode.position.x, y: draggedNode.position.y }
         return
     }

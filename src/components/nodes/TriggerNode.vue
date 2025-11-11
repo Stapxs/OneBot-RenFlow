@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { Position, Handle, useVueFlow } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
 import type { NodeParam } from 'renflow.runner'
@@ -58,6 +58,20 @@ const params: NodeParam[] = [
 
 const emit = defineEmits(['updateNodeInternals', 'updateTriggerOptions'])
 const { updateNode } = useVueFlow()
+
+// 当外部更新节点 data 时（例如 undo/redo），同步 localValues 保证面板打开时数据一致
+watch(() => props.data, (d) => {
+    if (!d) return
+    localValues.value.filterParam = d.filterParam || ''
+    localValues.value.filterMode = d.filterMode || ''
+    localValues.value.regexExpression = d.regexExpression || ''
+    localValues.value.prefix = d.prefix || ''
+    localValues.value.shellCommand = d.shellCommand || ''
+    localValues.value.shellArgs = d.shellArgs || ''
+    localValues.value.messageType = d.messageType || ''
+    localValues.value.targetId = d.targetId || ''
+    localValues.value.includeSelf = !!d.includeSelf
+}, { deep: true, immediate: true })
 
 function openSettings(e?: Event) {
     if (e) e.stopPropagation()
