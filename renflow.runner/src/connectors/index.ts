@@ -1,2 +1,2 @@
-export * from './ConnectorManager'
-export * from './adapter'
+export * from './ConnectorManager.js'
+export * from './adapter/index.js'

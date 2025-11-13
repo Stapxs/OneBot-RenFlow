@@ -98,6 +98,10 @@ export class WorkflowConverter {
         edges: VueFlowEdge[]
     ): Record<string, ExecutionNode> {
         const nodeMap: Record<string, ExecutionNode> = {}
+        const incomingCount: Record<string, number> = {}
+        for (const e of edges) {
+            incomingCount[e.target] = (incomingCount[e.target] || 0) + 1
+        }
 
         // 过滤掉触发器节点
         const executionNodes = nodes.filter(
@@ -106,6 +110,7 @@ export class WorkflowConverter {
 
         for (const node of executionNodes) {
             const executionNode = this.convertNode(node, edges)
+            executionNode.expectedInputs = incomingCount[node.id] || 0
             nodeMap[node.id] = executionNode
         }
 
@@ -189,9 +194,15 @@ export class WorkflowConverter {
                 branches[branchType] = edge.target
                 this.logger.debug(`  -> 归类为分支边，类型: ${branchType}, target: ${edge.target}`)
             } else {
-                // 这是一个普通边，应该加入 next
-                regularEdges.push(edge)
-                this.logger.debug('  -> 归类为普通边')
+                // 条件节点上的无标识边视为默认分支
+                if (branches['default'] === undefined) {
+                    branches['default'] = edge.target
+                    this.logger.debug(`  -> 归类为分支边，类型: default, target: ${edge.target}`)
+                } else {
+                    // 多个无标识边，仍作为普通边进入 next
+                    regularEdges.push(edge)
+                    this.logger.debug('  -> 归类为普通边')
+                }
             }
         }
 

@@ -66,7 +66,14 @@ export class MergeNode extends BaseNode {
                 }
             }
 
-            // 未知模式
+            if (mode === 'ALL') {
+                const arr = Array.isArray(input) ? input : []
+                return {
+                    success: true,
+                    output: { inputs: arr }
+                }
+            }
+
             return {
                 success: false,
                 error: `未知的合并模式: ${params?.mode}`

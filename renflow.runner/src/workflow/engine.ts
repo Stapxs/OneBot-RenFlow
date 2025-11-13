@@ -83,10 +83,12 @@ export interface ExecutionOptions {
 export class WorkflowEngine {
     private nodeManager: NodeManager
     private logger: Logger
+    private pendingMerge: Map<string, { inputs: any[]; expected: number; executed: boolean; timer?: any; params: Record<string, any> }>
 
     constructor() {
         this.nodeManager = new NodeManager()
         this.logger = new Logger('WorkflowEngine')
+        this.pendingMerge = new Map()
     }
 
     /**
@@ -248,14 +250,60 @@ export class WorkflowEngine {
         let result: NodeExecutionResult
 
         try {
-            // 执行节点
-            result = await this.nodeManager.executeNode(
-                node.id,
-                node.type,
-                input,
-                node.params,
-                nodeContext
-            )
+            if (node.type === 'merge' && String(node.params?.mode || 'ANY').toUpperCase() === 'ALL') {
+                const expected = typeof node.expectedInputs === 'number' ? node.expectedInputs : 0
+                const state = this.pendingMerge.get(nodeId) || { inputs: [], expected, executed: false, params: node.params }
+                state.inputs.push(input)
+                state.expected = expected
+                this.pendingMerge.set(nodeId, state)
+
+                if (!state.executed && (expected > 0 ? state.inputs.length >= expected : false)) {
+                    state.executed = true
+                    if (state.timer) { try { clearTimeout(state.timer) } catch {} state.timer = undefined }
+                    result = await this.nodeManager.executeNode(
+                        node.id,
+                        node.type,
+                        state.inputs,
+                        state.params,
+                        nodeContext
+                    )
+                } else {
+                    const timeout = Number(node.params?.timeout || 0)
+                    const behavior = String(node.params?.timeoutBehavior || 'execute')
+                    if (timeout > 0 && !state.timer) {
+                        state.timer = setTimeout(async () => {
+                            const cur = this.pendingMerge.get(nodeId)
+                            if (!cur || cur.executed) return
+                            cur.executed = true
+                            try {
+                                if (behavior === 'throw') {
+                                    throw new Error(`合并节点等待超时: 已收到 ${cur.inputs.length}/${cur.expected}`)
+                                }
+                                result = await this.nodeManager.executeNode(
+                                    node.id,
+                                    node.type,
+                                    cur.inputs,
+                                    cur.params,
+                                    nodeContext
+                                )
+                                await this.afterNodeSuccess(nodeId, node, result, workflow, context, options, startTime)
+                            } catch (err) {
+                                await options.callback?.onNodeError?.(nodeId, err as Error)
+                            }
+                        }, timeout)
+                        this.pendingMerge.set(nodeId, state)
+                    }
+                    return
+                }
+            } else {
+                result = await this.nodeManager.executeNode(
+                    node.id,
+                    node.type,
+                    input,
+                    node.params,
+                    nodeContext
+                )
+            }
         } catch (error) {
             // 触发节点错误回调
             const err = error as unknown as Error
@@ -271,20 +319,7 @@ export class WorkflowEngine {
             throw err
         }
 
-        // 计算延迟时间
-        const elapsed = Date.now() - startTime
-        const minDelay = options.minDelay || 0
-        if (minDelay > elapsed) {
-            await this.delay(minDelay - elapsed)
-        }
-
-        this.logger.info(`节点执行成功: ${nodeId}`)
-
-        // 触发节点完成回调
-        await options.callback?.onNodeComplete?.(nodeId, result)
-
-        // 执行下一个节点
-        await this.executeNextNodes(node, result, workflow, context, options)
+        await this.afterNodeSuccess(nodeId, node, result, workflow, context, options, startTime)
     }
 
     /**
@@ -312,6 +347,25 @@ export class WorkflowEngine {
         // 如果 next 为空，说明到达流程终点
     }
 
+    private async afterNodeSuccess(
+        nodeId: string,
+        node: ExecutionNode,
+        result: NodeExecutionResult,
+        workflow: WorkflowExecution,
+        context: ExecutionContext,
+        options: ExecutionOptions,
+        startTime: number
+    ): Promise<void> {
+        const elapsed = Date.now() - startTime
+        const minDelay = options.minDelay || 0
+        if (minDelay > elapsed) {
+            await this.delay(minDelay - elapsed)
+        }
+        this.logger.info(`节点执行成功: ${nodeId}`)
+        await options.callback?.onNodeComplete?.(nodeId, result)
+        await this.executeNextNodes(node, result, workflow, context, options)
+    }
+
     /**
      * 执行条件分支
      */
@@ -334,17 +388,31 @@ export class WorkflowEngine {
             if (nextNodeId) {
                 await this.executeNode(nextNodeId, result.output, workflow, context, options)
             } else {
-                this.logger.info(`分支 ${branchKey} 没有连接节点，流程结束`)
+                const defaultNext = node.branches['default']
+                if (defaultNext) {
+                    await this.executeNode(defaultNext, result.output, workflow, context, options)
+                } else {
+                    this.logger.info(`分支 ${branchKey} 没有连接节点，流程结束`)
+                }
             }
         } else {
             // 其他条件节点：使用 output 作为分支键
-            const branchKey = String(result.output)
+            const branchKey = (result.output && result.output._branchKey !== undefined)
+                ? String(result.output._branchKey)
+                : String(result.output)
             const nextNodeId = node.branches[branchKey] || node.branches['default']
 
             if (nextNodeId) {
                 await this.executeNode(nextNodeId, result.output, workflow, context, options)
             } else {
-                this.logger.info(`没有匹配的分支: ${branchKey}，流程结束`)
+                if (node.next && node.next.length > 0) {
+                    const executions = node.next.map(nextId =>
+                        this.executeNode(nextId, result.output, workflow, context, options)
+                    )
+                    await Promise.all(executions)
+                } else {
+                    this.logger.info(`没有匹配的分支: ${branchKey}，流程结束`)
+                }
             }
         }
     }

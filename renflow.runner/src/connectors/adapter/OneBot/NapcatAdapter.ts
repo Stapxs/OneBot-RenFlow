@@ -1,10 +1,10 @@
-import { RenMessageBodyData, RenMessageDataType } from '../msgTypes'
-import { BaseBotAdapter } from '../BotAdapter'
-import event from '../decorators'
-import type { AdapterMessage, NapcatAdapterOptions } from '../types'
+import { RenMessageBodyData, RenMessageDataType } from '../msgTypes.js'
+import { BaseBotAdapter } from '../BotAdapter.js'
+import event from '../decorators.js'
+import type { AdapterMessage, NapcatAdapterOptions } from '../types.js'
 import { instanceToPlain, plainToInstance } from 'class-transformer'
-import { NapcatRenMessage, NcRenApiData, NcRenApiParamsMessage } from './napcatMsgTypes'
-import type { RenApiData } from '../msgTypes'
+import { NapcatRenMessage, NcRenApiData, NcRenApiParamsMessage } from './napcatMsgTypes.js'
+import type { RenApiData } from '../msgTypes.js'
 
 
 /**
@@ -125,8 +125,8 @@ export class NapcatAdapter extends BaseBotAdapter {
     }
 
     async disconnect(): Promise<void> {
-    if (!this.ws) return
-    try { if (typeof this.ws.close === 'function') this.ws.close() } catch (e) { void e }
+        if (!this.ws) return
+        try { if (typeof this.ws.close === 'function') this.ws.close() } catch (e) { void e }
         this.clearReconnect()
         this.ws = null
         this.connected = false
@@ -134,7 +134,7 @@ export class NapcatAdapter extends BaseBotAdapter {
     }
 
     private clearReconnect() {
-    try { if (this.reconnectTimer) {clearTimeout(this.reconnectTimer); this.reconnectTimer = null } } catch (e) { void e }
+        try { if (this.reconnectTimer) {clearTimeout(this.reconnectTimer); this.reconnectTimer = null } } catch (e) { void e }
         this.reconnectAttempts = 0
     }
 
@@ -174,7 +174,13 @@ export class NapcatAdapter extends BaseBotAdapter {
 
     @event('get')
     async get(msg: AdapterMessage) {
-        const data = JSON.parse(msg.data)
+        let data: any
+        try {
+            data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data
+        } catch (e) {
+            this.emitEvent('error', { error: e })
+            return { ok: false }
+        }
         // 优先处理带 echo 的 RPC 响应，配合 callApiSync
         try {
             const echo = data?.echo
@@ -223,8 +229,6 @@ export class NapcatAdapter extends BaseBotAdapter {
         }
 
         const payload = JSON.stringify(plain)
-
-        console.log(payload)
 
         return new Promise((resolve, reject) => {
             const timeout = typeof this.options?.syncTimeout === 'number' ? this.options.syncTimeout : 5000

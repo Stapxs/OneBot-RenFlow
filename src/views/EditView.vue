@@ -6,11 +6,15 @@
                 <font-awesome-icon :icon="['fas', 'fa-floppy-disk']" />
                 保存
             </button>
-            <button class="toolbar-btn" title="撤销 (Ctrl+Z)" @click="undo">
+            <button class="toolbar-btn" title="撤销 (Ctrl+Z)"
+                :disabled="!canUndo"
+                @click="undo">
                 <font-awesome-icon :icon="['fas', 'fa-rotate-left']" />
                 撤销
             </button>
-            <button class="toolbar-btn" title="重做 (Ctrl+Shift+Z)" @click="redo">
+            <button class="toolbar-btn" title="重做 (Ctrl+Shift+Z)"
+                :disabled="!canRedo"
+                @click="redo">
                 <font-awesome-icon :icon="['fas', 'fa-rotate-right']" />
                 重做
             </button>
@@ -339,8 +343,8 @@ onMounted(async () => {
                 }]
                 // 新建时默认未启用
                 workflowEnabled.value = false
-                undoStack.length = 0
-                redoStack.length = 0
+                undoStack.value.length = 0
+                redoStack.value.length = 0
                 snapshotMaps()
             })
         }
@@ -414,12 +418,18 @@ async function loadWorkflowById(id: string) {
             // 恢复启用状态
             workflowEnabled.value = !!workflow.enabled
 
-            // 确保完整恢复节点和边数据
-            nodes.value = (workflow.nodes || []).map((n: any) => {
-                const isMerge = (n && ((n.data && n.data.nodeType === 'merge') || (n.data && n.data.metadata && n.data.metadata.id === 'merge') || n.type === getExNodeTypes('merge')))
-                return { ...n, draggable: isMerge ? false : (n.draggable ?? true), class: isMerge ? 'no-transition' : (n.class ?? '') }
+            // 确保完整恢复节点和边数据（通过 applyWithoutHistory 避免在加载时产生历史记录）
+            applyWithoutHistory(() => {
+                nodes.value = (workflow.nodes || []).map((n: any) => {
+                    const isMerge = (n && ((n.data && n.data.nodeType === 'merge') || (n.data && n.data.metadata && n.data.metadata.id === 'merge') || n.type === getExNodeTypes('merge')))
+                    return { ...n, draggable: isMerge ? false : (n.draggable ?? true), class: isMerge ? 'no-transition' : (n.class ?? '') }
+                })
+                edges.value = workflow.edges || []
+                // 清空历史栈并建立初始快照
+                undoStack.value.length = 0
+                redoStack.value.length = 0
+                snapshotMaps()
             })
-            edges.value = workflow.edges || []
 
             // 更新节点 ID 计数器，避免新节点 ID 冲突
             updateNodeIdCounter()
@@ -552,7 +562,13 @@ onMounted(async () => {
                 const payload = evt?.payload || {}
                 if (payload.id !== workflowInfo.value.id) return
                 const nodeId = payload.nodeId
-                highlightNode(nodeId, true)
+                const node = nodes.value.find(n => n.id === nodeId) as any
+                if (node && node.data?.nodeType === 'merge') {
+                    const targets = edges.value.filter(e => e.source === nodeId).map(e => e.target)
+                    for (const tid of targets) highlightNode(tid, true)
+                } else {
+                    highlightNode(nodeId, true)
+                }
                 // try {
                 //     const node = (nodes.value as any[]).find((n: any) => n.id === nodeId) as any
                 //     if (node && node.position) {
@@ -569,7 +585,13 @@ onMounted(async () => {
                 const payload = evt?.payload || {}
                 if (payload.id !== workflowInfo.value.id) return
                 const nodeId = payload.nodeId
-                highlightNode(nodeId, false)
+                const node = nodes.value.find(n => n.id === nodeId) as any
+                if (node && node.data?.nodeType === 'merge') {
+                    const targets = edges.value.filter(e => e.source === nodeId).map(e => e.target)
+                    for (const tid of targets) highlightNode(tid, false)
+                } else {
+                    highlightNode(nodeId, false)
+                }
             })
 
             // 监听节点错误
@@ -634,9 +656,15 @@ const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
 
 // ---- undo/redo 历史管理 ----
-const undoStack: any[] = []
-const redoStack: any[] = []
+const undoStack = ref<any[]>([])
+const redoStack = ref<any[]>([])
 let isApplyingHistory = false
+// 在节点删除时，用来抑制随后由 edges watcher 产生的重复 edge 删除历史项
+const suppressedEdgeRemovals = new Set<string>()
+
+// 可用于模板的撤销/重做可用状态
+const canUndo = computed(() => undoStack.value.length > 0)
+const canRedo = computed(() => redoStack.value.length > 0)
 
 // 快照用于 diff 检测（id -> node/edge）
 let prevNodesMap: Record<string, any> = {}
@@ -660,8 +688,8 @@ function applyWithoutHistory(fn: () => void) {
 }
 
 function pushAction(action: any) {
-    undoStack.push(action)
-    redoStack.length = 0
+    undoStack.value.push(action)
+    redoStack.value.length = 0
 }
 
 function applyAction(action: any, _isRedo = false) {
@@ -707,8 +735,11 @@ function applyAction(action: any, _isRedo = false) {
 }
 
 function undo() {
-    if (undoStack.length === 0) return
-    const action = undoStack.pop()
+    if (undoStack.value.length === 0) {
+        toast.info('没有更多可撤销的操作')
+        return
+    }
+    const action = undoStack.value.pop()
     // 计算逆操作并执行
     const inverse = (() => {
         switch (action.type) {
@@ -723,16 +754,19 @@ function undo() {
     })()
     if (inverse) {
         applyAction(inverse, false)
-        redoStack.push(action)
+        redoStack.value.push(action)
     }
 }
 
 function redo() {
-    if (redoStack.length === 0) return
-    const action = redoStack.pop()
+    if (redoStack.value.length === 0) {
+        toast.info('没有更多可重做的操作')
+        return
+    }
+    const action = redoStack.value.pop()
     if (!action) return
     applyAction(action, true)
-    undoStack.push(action)
+    undoStack.value.push(action)
 }
 
 // 监听键盘快捷键 Ctrl+Z / Ctrl+Shift+Z
@@ -776,6 +810,10 @@ watch(nodes, (newNodes) => {
         if (!newMap[id]) {
             // 收集该节点相关的边
             const relatedEdges = Object.values(prevEdgesMap).filter((ed: any) => ed.source === id || ed.target === id)
+            // 标记这些 edge id，抑制 edges watcher 产生重复的 removeEdge 记录
+            for (const re of relatedEdges) {
+                if (re && re.id) suppressedEdgeRemovals.add(re.id)
+            }
             pushAction({ type: 'removeNode', node: prevNodesMap[id], edges: relatedEdges })
         }
     }
@@ -795,7 +833,7 @@ watch(nodes, (newNodes) => {
             if (node && node.class === 'no-transition') {
                 continue
             }
-            const last = undoStack[undoStack.length - 1]
+            const last = undoStack.value[undoStack.value.length - 1]
             if (last && last.type === 'moveNode' && last.id === id) {
                 // 更新 last.to
                 last.to = curPos
@@ -828,7 +866,7 @@ watch(edges, (newEdges) => {
     for (const id of Object.keys(newMap)) {
         if (!prevEdgesMap[id]) {
             // 如果最近的节点删除操作包含此边，则跳过（避免重复记录）
-            const last = undoStack[undoStack.length - 1]
+            const last = undoStack.value[undoStack.value.length - 1]
             if (last && last.type === 'removeNode' && Array.isArray(last.edges) && last.edges.find((e: any) => e.id === id)) {
                 continue
             }
@@ -839,11 +877,19 @@ watch(edges, (newEdges) => {
     // 删除边
     for (const id of Object.keys(prevEdgesMap)) {
         if (!newMap[id]) {
-            // 如果最近的节点删除操作包含此边，则跳过（该边已作为节点删除的一部分被记录）
-            const last = undoStack[undoStack.length - 1]
+            // 如果这个 edge 是作为 node 删除的一部分被移除的，则跳过记录（由 suppressedEdgeRemovals 标记）
+            if (suppressedEdgeRemovals.has(id)) {
+                // 已处理，移除标记
+                suppressedEdgeRemovals.delete(id)
+                continue
+            }
+
+            // 兼容以前的逻辑：如果最近的节点删除操作包含此边，也跳过
+            const last = undoStack.value[undoStack.value.length - 1]
             if (last && last.type === 'removeNode' && Array.isArray(last.edges) && last.edges.find((e: any) => e.id === id)) {
                 continue
             }
+
             pushAction({ type: 'removeEdge', edge: prevEdgesMap[id] })
         }
     }
@@ -1312,6 +1358,11 @@ function onEdgeDoubleClick({ edge }: { edge: Edge }) {
 
 .toolbar-btn:active {
     transform: scale(0.95);
+}
+
+.toolbar-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .toolbar-btn svg {

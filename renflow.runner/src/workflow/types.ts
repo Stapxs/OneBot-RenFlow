@@ -25,6 +25,8 @@ export interface ExecutionNode {
         /** 其他分支（用于 switch 等多分支节点） */
         [key: string]: string | undefined
     }
+    /** 预期输入个数（用于需要聚合的节点） */
+    expectedInputs?: number
 }
 
 /**
