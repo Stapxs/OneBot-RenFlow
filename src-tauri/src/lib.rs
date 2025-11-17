@@ -125,6 +125,7 @@ pub fn run() {
             commands::sys::sys_download,
             commands::sys::sys_set_store_value,
             commands::sys::sys_get_store_value,
+            commands::sys::sys_export_workspace,
             commands::win::win_create_window,
             commands::win::win_close_window,
             commands::win::win_show_window,

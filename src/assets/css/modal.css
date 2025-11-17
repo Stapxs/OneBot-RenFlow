@@ -135,8 +135,7 @@
 }
 
 .param-item > label,
-.param-item .switch-container > label,
-.node-settings-btn button {
+.param-item .switch-container > label {
     color: var(--color-font);
     font-size: 0.7rem;
     font-weight: 500;

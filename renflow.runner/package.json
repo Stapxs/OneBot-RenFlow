@@ -49,6 +49,7 @@
     "@types/jsonpath": "^0.2.4",
     "@types/node": "^24.9.1",
     "@types/shell-quote": "^1.7.5",
+    "adm-zip": "^0.5.10",
     "amqplib": "^0.10.3",
     "class-transformer": "^0.5.1",
     "codemirror": "^5",
@@ -64,5 +65,8 @@
     "typescript": "^5.9.3",
     "uuid": "^13.0.0",
     "ws": "^8.18.3"
+  },
+  "dependencies": {
+    "@types/adm-zip": "^0.5.7"
   }
 }

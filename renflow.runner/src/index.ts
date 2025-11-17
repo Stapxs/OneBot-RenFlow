@@ -9,13 +9,22 @@ import { Logger, LogLevel } from './utils/logger.js'
 import { nodeManager } from './nodes/index.js'
 import path from 'path'
 import fs from 'fs/promises'
-import { WorkflowConverter, WorkflowEngine } from './workflow/index.js'
+import readline from 'readline'
+import { runWorkflowByTrigger, WorkflowConverter, WorkflowEngine } from './workflow/index.js'
 
 // 检测是否在 Node.js 环境中运行
 const isNode = typeof process !== 'undefined' && process.versions && process.versions.node
 
+// 全局可调用的优雅关闭函数（当 main 启动适配器时会被赋值）
+let performGlobalShutdown: (() => Promise<void>) | undefined = undefined
+
 async function main() {
     const logger = new Logger('Main')
+    // 支持通过环境变量开启调试日志：RENFLOW_LOG=debug
+    if (process.env.RENFLOW_LOG === 'debug' || process.env.DEBUG === '1') {
+        Logger.setLogLevel(LogLevel.DEBUG)
+        logger.info('调试日志已启用')
+    }
     logger.info('Ren Flow Runner 启动中...')
 
     if (isNode) {
@@ -32,36 +41,167 @@ async function main() {
             try {
                 const resolved = path.isAbsolute(arg) ? arg : path.resolve(process.cwd(), arg)
                 const stat = await fs.stat(resolved)
-                if (stat.isFile() && resolved.endsWith('.json')) {
-                    logger.info(`检测到工作流 JSON 文件，正在加载: ${resolved}`)
-                    const content = await fs.readFile(resolved, { encoding: 'utf-8' })
-                    const json = JSON.parse(content)
+                if (stat.isFile()) {
+                    if (resolved.endsWith('.json')) {
+                        logger.info(`检测到工作流 JSON 文件，正在加载: ${resolved}`)
+                        const content = await fs.readFile(resolved, { encoding: 'utf-8' })
+                        const json = JSON.parse(content)
 
-                    // 判断是否为 VueFlowWorkflow（有 nodes 数组和 edges）或已是执行数据
-                    let workflowExecution: any = null
-                    if (Array.isArray(json.nodes) && Array.isArray(json.edges)) {
-                        const converter = new WorkflowConverter()
-                        workflowExecution = converter.convert(json)
-                    } else if (json && typeof json.nodes === 'object' && json.entryNode !== undefined) {
-                        // 认为已经是 WorkflowExecution
-                        workflowExecution = json
-                    } else {
-                        throw new Error('无法识别的工作流 JSON 格式')
+                        let workflowExecution: any = null
+                        if (Array.isArray(json.nodes) && Array.isArray(json.edges)) {
+                            const converter = new WorkflowConverter()
+                            workflowExecution = converter.convert(json)
+                        } else if (json && typeof json.nodes === 'object' && json.entryNode !== undefined) {
+                            workflowExecution = json
+                        } else {
+                            throw new Error('无法识别的工作流 JSON 格式')
+                        }
+
+                        const engine = new WorkflowEngine()
+                        const result = await engine.execute(workflowExecution, null)
+                        if (!result.success) {
+                            logger.error('工作流执行失败 > ', result.error)
+                            process.exit(2)
+                        }
+                        logger.info('工作流执行成功')
+                        process.exit(0)
+                    } else if (resolved.endsWith('.renflow') || resolved.endsWith('.rfw') || resolved.endsWith('.zip')) {
+                        logger.info(`检测到工作集包，正在加载: ${resolved}`)
+
+                        const { default: AdmZip } = await import('adm-zip')
+                        const zip = new AdmZip(resolved)
+                        const entries = zip.getEntries()
+                        const botsEntry = entries.find((e: any) => e.entryName === 'bots.config')
+                        const workflows: any[] = []
+
+                        if (!botsEntry) {
+                            throw new Error('包内缺少 bots.config')
+                        }
+                        const botsConfig = JSON.parse(botsEntry.getData().toString('utf-8')) as Array<{ id: string, name: string, type: string, address: string, token?: string }>
+
+                        for (const e of entries) {
+                            if (e.entryName.endsWith('.json') && e.entryName !== 'bots.config') {
+                                try {
+                                    const content = e.getData().toString('utf-8')
+                                    const json = JSON.parse(content)
+                                    if (Array.isArray(json.nodes) && Array.isArray(json.edges)) {
+                                        const converter = new WorkflowConverter()
+                                        workflows.push(converter.convert(json))
+                                    } else if (json && typeof json.nodes === 'object' && json.entryNode !== undefined) {
+                                        workflows.push(json)
+                                    }
+                                } catch (err) {
+                                    logger.warn(`解析工作流失败: ${e.entryName} > ${String(err)}`)
+                                }
+                            }
+                        }
+
+                        logger.info(`已加载 ${workflows.length} 个工作流，准备连接 ${botsConfig.length} 个连接`)
+
+                        const { connectorManager } = await import('./connectors/index.js')
+                        const adapters: any[] = []
+
+                        // 在缺少 token 时询问用户输入
+                        const promptTokenForBot = async (bot: any) => {
+                            return new Promise<string>((resolve) => {
+                                try {
+                                    const rl = readline.createInterface({ input: process.stdin, output: process.stdout }) as any
+                                    const promptText = `请输入 token (${bot.name || bot.id || bot.address}): `
+
+                                    // 禁用输入回显：重写 _writeToOutput，在输入时不向 stdout 输出任何字符
+                                    rl._writeToOutput = function _writeToOutput(stringToWrite: string) {
+                                        if (stringToWrite && stringToWrite.indexOf(promptText) !== -1) {
+                                            rl.output.write(promptText)
+                                            return
+                                        }
+                                    }
+
+                                    rl.question(promptText, (answer: string) => {
+                                        try { rl.close() } catch (e) { /* ignore */ }
+                                        resolve((answer || '').trim())
+                                    })
+                                } catch (e) {
+                                    resolve('')
+                                }
+                            })
+                        }
+
+                        for (const bot of botsConfig) {
+                            try {
+                                // 如果配置中没有 token，则在 CLI 环境提示用户输入
+                                if (!bot.token && isNode) {
+                                    try {
+                                        const t = await promptTokenForBot(bot)
+                                        // eslint-disable-next-line no-console
+                                        console.log() // 换行
+                                        if (t) bot.token = t
+                                    } catch (e) { /* ignore */ }
+                                }
+                                const adapter = await connectorManager.createBotAdapter(bot.type, { url: bot.address, token: bot.token }, bot.id)
+                                adapters.push(adapter)
+                                adapter.on(['message','message_mine'], (p: any) => {
+                                    const eventName = p.isMine ? 'message_mine' : 'message'
+                                    const relevant = workflows.filter(w => w.trigger?.name === eventName || w.trigger?.label === eventName)
+                                    runWorkflowByTrigger(relevant, p, { timeout: 60000, bot: adapter }).catch(() => void 0)
+                                })
+                                adapter.on('connected', () => logger.info(`适配器已连接: ${bot.id}`))
+                                adapter.on('disconnected', () => logger.warn(`适配器已断开: ${bot.id}`))
+                                adapter.on('error', (err: any) => logger.error(`适配器错误: ${bot.id}`, err))
+                                await adapter.connect()
+                            } catch (err) {
+                                logger.error(`连接适配器失败: ${bot.id}`, err)
+                            }
+                        }
+
+                        logger.info('工作集已启动，等待事件触发...')
+
+                        // 等待退出信号，优雅断开所有适配器
+                        // 确保进程不会因为没有活跃事件而退出：resume stdin 保持事件循环活跃
+                        try {
+                            if (process.stdin && typeof process.stdin.resume === 'function') {
+                                process.stdin.resume()
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+
+                        const shutdownPromise = new Promise<void>((resolve) => {
+                            const doShutdown = async () => {
+                                logger.info('接收到退出信号，正在关闭适配器...')
+                                for (const a of adapters) {
+                                    try {
+                                        if (typeof a.disconnect === 'function') {
+                                            await a.disconnect()
+                                            logger.info('适配器已断开')
+                                        }
+                                    } catch (err) {
+                                        logger.warn('断开适配器时出错', err)
+                                    }
+                                }
+                                // 恢复 stdin 状态，允许进程在断开后退出
+                                try {
+                                    if (process.stdin && typeof process.stdin.pause === 'function') {
+                                        process.stdin.pause()
+                                    }
+                                } catch (e) {
+                                    // ignore
+                                }
+
+                                resolve()
+                            }
+
+                            // 将全局 shutdown 指向当前做法，供外部 process handler 使用
+                            performGlobalShutdown = doShutdown
+
+                            process.once('SIGINT', () => void doShutdown())
+                            process.once('SIGTERM', () => void doShutdown())
+                        })
+
+                        await shutdownPromise
+
+                        logger.info('适配器已关闭，进程退出')
+                        process.exit(0)
                     }
-
-                    // 简单验证并运行工作流
-                    const engine = new WorkflowEngine()
-
-                    const result = await engine.execute(workflowExecution, null)
-
-                    if (!result.success) {
-                        logger.error('工作流执行失败 > ', result.error)
-                        process.exit(2)
-                    }
-
-                    logger.info('工作流执行成功')
-                    // 运行完后直接退出（CLI 模式）
-                    process.exit(0)
                 }
             } catch (e) {
                 logger.error('加载或执行工作流时出错:', e)
@@ -82,15 +222,23 @@ if (isNode && import.meta.url === `file://${process.argv[1]}`) {
         process.exit(1)
     })
 
-    // 优雅退出处理
+    // 优雅退出处理：若主流程已注册全局 shutdown，委托给它执行；否则直接退出
     process.on('SIGINT', () => {
         logger.info('接收到退出信号，正在关闭...')
-        process.exit(0)
+        if (typeof performGlobalShutdown === 'function') {
+            void performGlobalShutdown().then(() => process.exit(0))
+        } else {
+            process.exit(0)
+        }
     })
 
     process.on('SIGTERM', () => {
         logger.info('接收到终止信号，正在关闭...')
-        process.exit(0)
+        if (typeof performGlobalShutdown === 'function') {
+            void performGlobalShutdown().then(() => process.exit(0))
+        } else {
+            process.exit(0)
+        }
     })
 }
 

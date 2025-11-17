@@ -83,7 +83,10 @@ defineEmits(['updateNodeInternals'])
                 <font-awesome-icon :icon="['fas', data.metadata.icon || 'fa-cube']" />
                 <span class="node-label">{{ data.label }}</span>
             </div>
-            <button class="delete-btn" title="删除节点" @click.stop="deleteNode">
+            <button v-if="shouldShowSettings" class="title-btn" title="节点设置" @click.stop="openSettings">
+                <font-awesome-icon :icon="['fas', 'cog']" />
+            </button>
+            <button class="title-btn" title="删除节点" @click.stop="deleteNode">
                 <font-awesome-icon :icon="['fas', 'times']" />
             </button>
         </header>
@@ -161,14 +164,6 @@ defineEmits(['updateNodeInternals'])
             </div>
         </div>
 
-        <!-- 设置按钮 -->
-        <div v-if="shouldShowSettings" class="node-settings-btn">
-            <button title="节点设置" @click.stop="openSettings">
-                <span>节点设置</span>
-                <font-awesome-icon :icon="['fas', 'cog']" />
-            </button>
-        </div>
-
         <div v-if="isDev" class="node-tip">
             <span>{{ props.id }}</span>
         </div>
@@ -242,8 +237,8 @@ defineEmits(['updateNodeInternals'])
     height: 12px;
 }
 
-/* 删除按钮 */
-.delete-btn {
+/* 按钮 */
+.title-btn {
     transition: background 0.2s, transform 0.1s;
     background: rgba(255, 255, 255, 0.15);
     color: var(--color-font-r);
@@ -258,58 +253,19 @@ defineEmits(['updateNodeInternals'])
     flex-shrink: 0;
 }
 
-.delete-btn:hover {
+.title-btn:hover {
     background: rgba(255, 255, 255, 0.25);
     transform: scale(1.05);
     opacity: 1;
 }
 
-.delete-btn:active {
+.title-btn:active {
     transform: scale(0.95);
 }
 
-.delete-btn svg {
+.title-btn svg {
     height: 10px;
     width: 10px;
-}
-
-/* 设置按钮 */
-.node-settings-btn {
-    margin-top: 10px;
-}
-
-.node-settings-btn button {
-    width: 100%;
-    background: rgba(var(--color-main-rgb), 0.1);
-    border: 1px solid rgba(var(--color-main-rgb), 0.3);
-    border-radius: 6px;
-    padding: 0 5px 0 0;
-    color: var(--color-font);
-    font-size: 0.8rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    transition: background 0.2s, border-color 0.2s, transform 0.1s;
-}
-
-.node-settings-btn button span {
-    text-align: left;
-    min-width: 140px;
-    flex: 1;
-}
-
-.node-settings-btn button:hover {
-    background: rgba(var(--color-main-rgb), 0.2);
-    border-color: rgba(var(--color-main-rgb), 0.5);
-}
-
-.node-settings-btn svg {
-    color: var(--color-font-1);
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
 }
 
 /* 参数区域 */

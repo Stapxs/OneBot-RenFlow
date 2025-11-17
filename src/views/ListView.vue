@@ -25,6 +25,10 @@
                 <button title="刷新列表" @click="refreshWorkflowList">
                     <font-awesome-icon :icon="['fas', 'fa-rotate-right']" />
                 </button>
+                <button v-if="backend.isDesktop()" title="导出工作集" @click="exportWorkspace">
+                    <font-awesome-icon :icon="['fas', 'fa-file-export']" />
+                    <span>导出</span>
+                </button>
                 <label>
                     <font-awesome-icon :icon="['fas', 'fa-magnifying-glass']" />
                     <input v-model="searchKeyword" type="text" placeholder="搜索...">
@@ -84,14 +88,14 @@ import { windowManager } from '@app/functions/window'
 import { backend } from '@app/functions/backend'
 import { WorkflowStorage } from '@app/functions/workflow'
 import type { WorkflowListItem } from '@app/functions/workflow'
-import { Logger, LogType, PopInfo, PopType } from '@app/functions/base'
+import { Logger, LogType } from '@app/functions/base'
+import { toast } from '@app/functions/toast'
 import { connectorManager, RenMessage, runWorkflowByTrigger, type VueFlowWorkflow, WorkflowConverter, type WorkflowExecution } from 'renflow.runner'
 
 import WorkflowDialog from '@app/components/WorkflowDialog.vue'
 import type { BaseBotAdapter } from 'renflow.runner/dist/connectors'
 
 const router = useRouter()
-const popInfo = new PopInfo()
 const logger = new Logger()
 
 const bots = ref<BaseBotAdapter[]>([])
@@ -144,6 +148,37 @@ const filteredWorkflows = computed(() => {
     })
 })
 
+async function exportWorkspace() {
+    if (!backend.isDesktop()) {
+        toast.error('仅桌面模式支持导出')
+        return
+    }
+    const ok = await confirm({
+        title: '导出工作集',
+        message: '将导出可被命令行模式使用的包，包含已配置的连接信息（不包含密码）以及当前已启用的工作流。是否继续？',
+        confirmText: '导出',
+        cancelText: '取消'
+    })
+    if (!ok) return
+    try {
+        const rawBots = Option.get('bots') || []
+        const botsConfig = Array.isArray(rawBots) ? rawBots.map((b: any) => ({ id: b.id, name: b.name, type: b.type, address: b.address })) : []
+        const list = await WorkflowStorage.list()
+        const enabled = list.filter(w => w.enabled)
+        const files: { filename: string, content: string }[] = []
+        const converter = new WorkflowConverter()
+        for (const w of enabled) {
+            const full = await WorkflowStorage.load(w.id)
+            if (full) files.push({ filename: `${w.id}.json`, content: JSON.stringify(converter.convert(full as unknown as VueFlowWorkflow)) })
+        }
+        await backend.call('sys:exportWorkspace', { data: { bots: botsConfig, workflows: files } })
+        toast.success('导出成功')
+    } catch (e) {
+        logger.add(LogType.ERR, '导出失败', e)
+        toast.error('导出失败')
+    }
+}
+
 // 加载工作流列表
 async function loadWorkflowList() {
     try {
@@ -151,14 +186,14 @@ async function loadWorkflowList() {
         logger.add(LogType.INFO, '工作流列表已加载：', workflowList.value)
     } catch (error) {
         logger.error(error as unknown as Error, '加载工作流列表失败')
-        popInfo.add(PopType.ERR, '加载工作流列表失败')
+        toast.error('加载工作流列表失败')
     }
 }
 
 // 刷新工作流列表
 async function refreshWorkflowList() {
     await loadWorkflowList()
-    popInfo.add(PopType.INFO, '列表已刷新')
+    toast.info('列表已刷新')
 }
 
 // 切换启用/禁用工作流
@@ -166,17 +201,17 @@ async function toggleEnableWorkflow(workflow: WorkflowListItem) {
     try {
         const full = await WorkflowStorage.load(workflow.id)
         if (!full) {
-            popInfo.add(PopType.ERR, '无法加载工作流')
+            toast.error('无法加载工作流')
             return
         }
 
         full.enabled = !full.enabled
         await WorkflowStorage.save(full)
         await loadWorkflowList()
-        popInfo.add(PopType.INFO, full.enabled ? '工作流已启用' : '工作流已禁用')
+        toast.info(full.enabled ? '工作流已启用' : '工作流已禁用')
     } catch (e) {
         logger.error(e as Error, '切换工作流状态失败')
-        popInfo.add(PopType.ERR, '操作失败')
+        toast.error('操作失败')
     }
 }
 
@@ -229,13 +264,13 @@ async function deleteWorkflow(workflow: WorkflowListItem) {
             })
             if (!ok) return
             await WorkflowStorage.delete(workflow.id)
-        popInfo.add(PopType.INFO, '工作流已删除')
+        toast.info('工作流已删除')
 
         // 刷新列表
         await loadWorkflowList()
     } catch (error) {
         logger.error(error as unknown as Error, '删除工作流失败')
-        popInfo.add(PopType.ERR, '删除工作流失败')
+        toast.error('删除工作流失败')
     }
 }
 
@@ -301,17 +336,26 @@ onMounted(async () => {
                 const eventName = p.isMine ? 'message_mine' : 'message'
                 runFlow(p, adapter, workflowList.value.filter(w => w.triggerName === eventName && w.enabled))
             })
-            adapter.on('connect', () => {
+            adapter.on('connected', () => {
                 logger.add(LogType.INFO, `适配器已连接: ${item.id}`)
+                toast.success(`适配器已连接: ${item.id}`)
             })
-            adapter.on('disconnect', () => {
+            adapter.on('disconnected', () => {
                 logger.add(LogType.ERR, `适配器已断开: ${item.id}`)
+                toast.warning(`适配器已断开: ${item.id}，正在尝试重连`)
             })
             adapter.on('error', (err: any) => {
                 logger.add(LogType.ERR, `适配器错误: ${item.id}`, err)
+                const msg = (err && (err.message || err.toString())) || '未知错误'
+                toast.error(`适配器错误: ${item.id} - ${msg}`)
             })
 
-            await adapter.connect()
+            try {
+                await adapter.connect()
+            } catch (e: any) {
+                logger.add(LogType.ERR, `适配器连接失败: ${item.id}`, e)
+                toast.error(`适配器连接失败: ${item.id}`)
+            }
         })
     }
 })
@@ -550,13 +594,21 @@ const runFlow = async (data: any, bot: BaseBotAdapter, workflowList: WorkflowLis
 
 .content-controller button {
     height: 32px;
-    width: 32px;
-    border-radius: 50%;
+    padding: 0 9px;
+    border-radius: 32px;
     border: none;
     background: rgba(var(--color-card-rgb), 0.5);
     color: var(--color-font-2);
     cursor: pointer
 }
+.content-controller button > span {
+    font-size: 0.7rem;
+    margin-left: 5px;
+}
+.content-controller button:has(span) {
+    padding: 0 10px 0 10px;
+}
+
 
 .content-controller label {
     display: flex;

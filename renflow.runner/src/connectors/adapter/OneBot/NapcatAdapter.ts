@@ -4,6 +4,7 @@ import event from '../decorators.js'
 import type { AdapterMessage, NapcatAdapterOptions } from '../types.js'
 import { instanceToPlain, plainToInstance } from 'class-transformer'
 import { NapcatRenMessage, NcRenApiData, NcRenApiParamsMessage } from './napcatMsgTypes.js'
+import { Logger } from '../../../utils/logger.js'
 import type { RenApiData } from '../msgTypes.js'
 
 
@@ -16,6 +17,8 @@ export class NapcatAdapter extends BaseBotAdapter {
     private reconnectAttempts = 0
     private reconnectTimer: any = null
     private pendingApiResponses: Map<string, { resolve: (v: any) => void, reject: (e: any) => void, timer?: any }> = new Map()
+    private reconnecting = false
+    private lastActivity = 0
 
     protected declare options: NapcatAdapterOptions
 
@@ -56,16 +59,22 @@ export class NapcatAdapter extends BaseBotAdapter {
                     const onOpen = () => {
                         this.reconnectAttempts = 0
                         this.connected = true
+                        this.reconnecting = false
+                        this.lastActivity = Date.now()
                         this.emitEvent('connected', { id: this.id, source: this.id, timestamp: Date.now() })
                         cleanupListeners()
                         resolve()
                     }
 
-                    const onMessage = (data: any) =>
+                    const onMessage = (data: any) => {
+                        this.lastActivity = Date.now()
                         this.emitEvent('get', { data: data, timestamp: Date.now() } as AdapterMessage)
+                    }
 
                     const onClose = () => {
                         this.connected = false
+                        this.reconnecting = false
+                        this.rejectAllPending(new Error('WebSocket closed'))
                         this.emitEvent('disconnected', { id: this.id, source: this.id, timestamp: Date.now() })
                         cleanupListeners()
                         if (reconnect) scheduleReconnect()
@@ -73,7 +82,11 @@ export class NapcatAdapter extends BaseBotAdapter {
 
                     const onError = (err: any) => {
                         this.emitEvent('error', { error: err })
-                        // let close handle reconnect
+                        try {
+                            // 主动触发关闭以便统一走重连流程
+                            if (this.ws && typeof this.ws.close === 'function') this.ws.close()
+                        } catch { /* ignore */ }
+                        if (reconnect) scheduleReconnect()
                     }
 
                     const cleanupListeners = () => {
@@ -96,9 +109,14 @@ export class NapcatAdapter extends BaseBotAdapter {
 
                     const scheduleReconnect = () => {
                         if (!reconnect) return
+                        if (this.reconnecting) return
+                        this.reconnecting = true
                         this.reconnectAttempts++
                         if (this.reconnectAttempts > maxRetries) return
-                        const delay = retryInterval * this.reconnectAttempts
+                        const base = retryInterval * Math.max(1, Math.pow(2, this.reconnectAttempts - 1))
+                        const capped = Math.min(base, 30000)
+                        const jitter = Math.floor(capped * (0.2 * Math.random()))
+                        const delay = capped + jitter
                         this.reconnectTimer = setTimeout(() => {
                             doConnect().catch(() => { /* swallow */ })
                         }, delay)
@@ -130,12 +148,25 @@ export class NapcatAdapter extends BaseBotAdapter {
         this.clearReconnect()
         this.ws = null
         this.connected = false
+        this.reconnecting = false
+        this.rejectAllPending(new Error('Disconnected'))
         this.emitEvent('disconnected', { id: this.id, source: this.id, timestamp: Date.now() })
     }
 
     private clearReconnect() {
         try { if (this.reconnectTimer) {clearTimeout(this.reconnectTimer); this.reconnectTimer = null } } catch (e) { void e }
         this.reconnectAttempts = 0
+        this.reconnecting = false
+    }
+
+    private rejectAllPending(reason: Error) {
+        try {
+            for (const [echo, entry] of this.pendingApiResponses.entries()) {
+                try { if (entry.timer) clearTimeout(entry.timer) } catch { /* ignore */ }
+                try { entry.reject(reason) } catch { /* ignore */ }
+                this.pendingApiResponses.delete(echo)
+            }
+        } catch { /* ignore */ }
     }
 
     // 工具方法 ==================================================
@@ -149,6 +180,13 @@ export class NapcatAdapter extends BaseBotAdapter {
     // 直接通过底层 websocket 发送原始字符串数据，返回 Promise
     private sendRaw(payload: string): Promise<void> {
         if (!this.ws) return Promise.reject(new Error('WebSocket not initialized'))
+        try {
+            const rs = this.ws.readyState
+            // 0 CONNECTING, 1 OPEN, 2 CLOSING, 3 CLOSED
+            if (rs !== 1 && typeof rs === 'number') {
+                return Promise.reject(new Error('WebSocket not open'))
+            }
+        } catch { /* ignore */ }
         try {
             // 浏览器 WebSocket
             if (typeof this.ws.send === 'function') {
@@ -174,9 +212,11 @@ export class NapcatAdapter extends BaseBotAdapter {
 
     @event('get')
     async get(msg: AdapterMessage) {
+        const logger = new Logger('NapcatAdapter')
         let data: any
         try {
             data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data
+            logger.debug('recv raw data', data)
         } catch (e) {
             this.emitEvent('error', { error: e })
             return { ok: false }
@@ -196,13 +236,16 @@ export class NapcatAdapter extends BaseBotAdapter {
         }
         // 对原始消息进行拆分二次投递事件
         const msgType = data.post_type === 'notice' ? data.sub_type ?? data.notice_type : data.post_type
+        logger.debug('parsed msgType', msgType)
         if (msgType == 'message') {
             const msgs = this.formatMessage([data])
             msgs[0].isMine = false
+            logger.debug('emit message', msgs[0])
             this.emitEvent('message', msgs[0])
         } else if (msgType == 'message_sent') {
             const msgs = this.formatMessage([data])
             msgs[0].isMine = true
+            logger.debug('emit message_mine', msgs[0])
             this.emitEvent('message_mine', msgs[0])
         }
         return { ok: true }

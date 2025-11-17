@@ -8,7 +8,7 @@
 
 import Option from './option'
 import { reactive } from 'vue'
-import type { PopInfoElem } from './elements/system'
+ 
 
 // =============== 日志 ===============
 
@@ -178,56 +178,4 @@ export class Logger {
 
 // =============== 系统消息 ===============
 
-export enum PopType {
-    INFO = 'circle-info',
-    ERR = 'circle-exclamation',
-}
-
-export class PopInfo {
-    /**
-     *
-     * @param typeInfo 消息类型
-     * @param args 消息内容
-     * @param isAutoClose 是否自动关闭（默认为 true）
-     */
-    add(icon: PopType, args: string, isAutoClose = true) {
-        const data: PopInfoElem = {
-            id: popList.length,
-            svg: icon,
-            text: args,
-            autoClose: isAutoClose,
-        }
-        popList.splice(popList.length, 0, data)
-        // 创建定时器
-        if (data.autoClose) {
-            setTimeout(() => {
-                this.remove(data.id)
-            }, 5000)
-        }
-    }
-
-    /**
-     * 移除一条消息
-     * @param id 消息编号
-     */
-    remove(id: number) {
-        const index = popList.findIndex((item) => {
-            return item.id === id
-        })
-        if (index !== -1) {
-            popList.splice(index, 1)
-        }
-    }
-
-    /**
-     * 清空所有消息
-     */
-    clear() {
-        // 因为消息是有动画的，所以需要延迟清空
-        setTimeout(() => {
-            popList.splice(0, popList.length)
-        }, 300)
-    }
-}
-
-export const popList: PopInfoElem[] = reactive([])
+ 

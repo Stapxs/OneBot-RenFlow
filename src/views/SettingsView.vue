@@ -75,9 +75,9 @@ import SsCard from 'vue3-bcui/packages/ss-card'
 
 import Option from '@app/functions/option'
 import BotDialog from '@app/components/BotDialog.vue'
+import { toast } from '@app/functions/toast'
 
 import { ref, onMounted } from 'vue'
-import { PopInfo, PopType } from '@app/functions/base'
 
 interface BotItem {
     id: string
@@ -93,10 +93,10 @@ const showAddDialog = ref(false)
 
 function saveBots() {
     try {
-        Option.save('bots', bots.value)
-        new PopInfo().add(PopType.INFO, '保存成功')
+    Option.save('bots', bots.value)
+    toast.success('保存成功')
     } catch (e) {
-        new PopInfo().add(PopType.ERR, '保存失败')
+    toast.error('保存失败')
     }
 }
 

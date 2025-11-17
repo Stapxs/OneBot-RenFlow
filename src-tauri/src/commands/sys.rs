@@ -9,6 +9,9 @@ use tauri::{command, AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use futures_util::StreamExt;
 use user_notify::NotificationManager;
+use serde::{Deserialize};
+use std::path::PathBuf;
+use zip::write::FileOptions;
 
 #[command]
 pub async fn sys_front_loaded(
@@ -405,6 +408,44 @@ pub async fn sys_set_store_value(
     Ok(())
 }
 
+#[derive(Deserialize)]
+pub struct ExportWorkflowFile { filename: String, content: String }
+
+#[derive(Deserialize)]
+pub struct ExportPayload { path: Option<String>, bots: Vec<serde_json::Value>, workflows: Vec<ExportWorkflowFile> }
+
+#[command]
+pub async fn sys_export_workspace(data: ExportPayload) -> Result<(), String> {
+    let mut target: PathBuf = match data.path {
+        Some(ref p) if !p.is_empty() => {
+            let mut t = PathBuf::from(p);
+            if t.extension().is_none() { t.set_extension("rfw"); }
+            t
+        },
+        _ => {
+            let dialog = rfd::FileDialog::new()
+                .add_filter("RenFlow Package", &["rfw"])
+                .set_file_name("workspace.rfw");
+            match dialog.save_file() {
+                Some(p) => p,
+                None => return Ok(()),
+            }
+        }
+    };
+    let file = File::create(&target).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = FileOptions::default();
+    let bots_str = serde_json::to_string(&data.bots).map_err(|e| e.to_string())?;
+    zip.start_file("bots.config", opts).map_err(|e| e.to_string())?;
+    zip.write_all(bots_str.as_bytes()).map_err(|e| e.to_string())?;
+    for wf in data.workflows.iter() {
+        zip.start_file(&wf.filename, opts).map_err(|e| e.to_string())?;
+        zip.write_all(wf.content.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// 获取 Store 值
 #[command]
 pub async fn sys_get_store_value(
@@ -429,4 +470,3 @@ pub async fn sys_get_store_value(
         None => Ok(None),
     }
 }
-

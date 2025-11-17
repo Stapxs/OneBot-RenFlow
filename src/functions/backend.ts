@@ -1,9 +1,10 @@
 import type { InvokeArgs, InvokeOptions } from '@tauri-apps/api/core'
-import { Logger, LogType, PopInfo, PopType } from '@app/functions/base'
+import { Logger, LogType } from '@app/functions/base'
+import { toast } from '@app/functions/toast'
 import { reactive } from 'vue'
 
 const logger = new Logger()
-const popInfo = new PopInfo()
+const popInfo = null as any
 
 export const backend = reactive({
     type: 'web' as 'tauri' | 'web',
@@ -99,7 +100,7 @@ export const backend = reactive({
         this.proxy  = await this.call('sys:runProxy')
         if(this.type == 'tauri' && !this.proxy) {
             logger.error(null, 'Tauri 代理服务似乎没有正常启动，此服务异常将会影响应用内的大部分外部资源的加载。')
-            popInfo.add(PopType.ERR, 'Tauri 代理服务似乎没有正常启动', false)
+            toast.error('Tauri 代理服务似乎没有正常启动')
         }
     },
 

@@ -3,7 +3,7 @@
  * @Author: Stapxs
  */
 
-import { PopInfo, PopType } from './base'
+import { toast } from './toast'
 import { backend } from '@app/functions/backend'
 import { runtimeData } from './runtime'
 
@@ -104,12 +104,8 @@ function loadOptData(data: { [key: string]: any }) {
 			delete options[key]
 		}
     }else if (needless.length > 0) {
-		new PopInfo().add(
-			PopType.INFO,
-			'发现' + needless.length + '条未使用的配置属性',
-			false,
-		)
-	}
+        toast.info('发现' + needless.length + '条未使用的配置属性')
+    }
 
     // 保存
     if (optChanged) {
