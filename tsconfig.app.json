@@ -1,6 +1,7 @@
 {
     "extends": "@vue/tsconfig/tsconfig.dom.json",
     "compilerOptions": {
+        "verbatimModuleSyntax": false,
         "lib": ["ESNext", "DOM"],
         "strictNullChecks": false,
         "composite": true,

@@ -11,7 +11,8 @@
     "dev": "vite",
     "dev:tauri": "tauri dev -c src-tauri/tauri.conf.json",
     "build": "vue-tsc -b && vite build",
-    "build:runner": "yarn workspace renflow.runner build"
+    "build:runner": "yarn workspace renflow.runner build",
+    "build:tauri": "tauri build -c src-tauri/tauri.conf.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

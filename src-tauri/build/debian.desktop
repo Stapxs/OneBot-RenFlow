@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Renflow Editor
+Exec=renflow-editor %U
+Icon=renflow-editor
+Type=Application
+Categories=Utility;

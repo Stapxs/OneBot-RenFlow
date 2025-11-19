@@ -1,6 +1,6 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-    "productName": "ren-flow",
+    "productName": "Renflow Editor",
     "version": "0.1.0",
     "identifier": "cn.stapxs.renflow",
     "build": {
@@ -15,21 +15,55 @@
             "csp": null,
             "assetProtocol": {
                 "enable": true,
-                "scope": [
-                    "**"
-                ]
+                "scope": ["**"]
             }
         }
     },
     "bundle": {
         "active": true,
+        "copyright": "Copyright © 2025 Stapx Steve [林槐]",
+        "homepage": "https://github.com/Stapxs/RenFlow-Bot",
+        "longDescription": "用工作流来创建 OneBot 机器人逻辑的可视化编辑器。",
+        "shortDescription": "用工作流来创建 OneBot 机器人逻辑的可视化编辑器。",
+        "publisher": "stapxs",
+        "license": "AGPL-3.0-only",
         "targets": "all",
         "icon": [
-            "icons/32x32.png",
-            "icons/128x128.png",
-            "icons/128x128@2x.png",
-            "icons/icon.icns",
-            "icons/icon.ico"
-        ]
+            "icons/icon-client.icns",
+            "icons/icon-client.png",
+            "icons/icon-client.ico"
+        ],
+        "macOS": {
+            "signingIdentity": "NL8AW5AD94",
+            "dmg": {
+                "appPosition": {
+                    "x": 112,
+                    "y": 110
+                },
+                "applicationFolderPosition": {
+                    "x": 396,
+                    "y": 110
+                },
+                "windowSize": {
+                    "height": 302,
+                    "width": 517
+                },
+                "background": "imgs/dmg-bg.png"
+            },
+            "entitlements": "build/entitlements.mac.plist"
+        },
+        "windows": {
+            "allowDowngrades": false,
+            "webviewInstallMode": {
+                "silent": true,
+                "type": "downloadBootstrapper"
+            },
+            "wix": null
+        },
+        "linux": {
+            "deb": {
+                "desktopTemplate": "build/debian.desktop"
+            }
+        }
     }
 }

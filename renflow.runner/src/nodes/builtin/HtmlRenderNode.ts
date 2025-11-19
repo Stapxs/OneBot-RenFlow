@@ -81,26 +81,26 @@ export class HtmlRenderNode extends BaseNode {
                 const msg = (err instanceof Error ? err.message : String(err)) || ''
                 return { success: false, error: `浏览器端渲染失败：${msg}` }
             }
-        }
+        } else {
+            // Node.js 环境：使用 puppeteer
+            try {
+                // 动态导入 puppeteer，避免在前端打包时解析模块
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const puppeteerImport = await import(/* @vite-ignore */ 'puppeteer')
+                const puppeteer = puppeteerImport.default || puppeteerImport
+                const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+                const page = await browser.newPage()
+                await page.setContent(html, { waitUntil: 'networkidle0' })
+                const buffer = await page.screenshot({ type: 'png', fullPage: false })
+                await browser.close()
 
-        // Node.js 环境：使用 puppeteer
-        try {
-            // 动态导入 puppeteer，避免在前端打包时解析模块
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const puppeteerImport = await import('puppeteer')
-            const puppeteer = puppeteerImport.default || puppeteerImport
-            const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] })
-            const page = await browser.newPage()
-            await page.setContent(html, { waitUntil: 'networkidle0' })
-            const buffer = await page.screenshot({ type: 'png', fullPage: false })
-            await browser.close()
-
-            const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer as any)
-            const base64 = buf.toString('base64')
-            return { success: true, output: { image: `data:image/png;base64,${base64}` } }
-        } catch (err) {
-            const msg = (err instanceof Error ? err.message : String(err)) || ''
-            return { success: false, error: `服务器端渲染失败（请确保已安装 puppeteer）：${msg}` }
+                const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer as any)
+                const base64 = buf.toString('base64')
+                return { success: true, output: { image: `data:image/png;base64,${base64}` } }
+            } catch (err) {
+                const msg = (err instanceof Error ? err.message : String(err)) || ''
+                return { success: false, error: `服务器端渲染失败（请确保已安装 puppeteer）：${msg}` }
+            }
         }
     }
 }
